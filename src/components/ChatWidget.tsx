@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, ExternalLink } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { X, Send, ExternalLink } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button, ButtonProps } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import Image from 'next/image';
 
 // Type definitions
 interface Config {
@@ -150,10 +151,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => (
   >
     <div className="flex items-start gap-4">
       {product.featuredImage && (
-        <img 
+        <Image 
           src={product.featuredImage.url} 
           alt={product.title}
-          className="w-20 h-20 object-cover rounded"
+          width={80}
+          height={80}
+          className="object-cover rounded"
         />
       )}
       <div className="flex-1">
@@ -181,10 +184,12 @@ const SeacretspaChatWidget: React.FC = () => {
   const [cartId, setCartId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const addMessage = useCallback((text: string | React.ReactNode, isBot: boolean) => {
+    setMessages(prev => [...prev, { text, isBot }]);
+  }, []);
+
   useEffect(() => {
-    // Show widget after a short delay
     setTimeout(() => setChatState(CHAT_STATES.MINIMIZED), 2000);
-    // Initialize cart
     initializeCart();
   }, []);
 
@@ -193,7 +198,7 @@ const SeacretspaChatWidget: React.FC = () => {
       addMessage(TRANSLATIONS.welcome, true);
       addMessage(TRANSLATIONS.askHelp, true);
     }
-  }, [chatState]);
+  }, [chatState, messages.length, addMessage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -244,10 +249,6 @@ const SeacretspaChatWidget: React.FC = () => {
     }
   };
 
-  const addMessage = (text: string | React.ReactNode, isBot: boolean) => {
-    setMessages(prev => [...prev, { text, isBot }]);
-  };
-
   const handleBookingRequest = () => {
     addMessage(TRANSLATIONS.bookingRedirect, true);
     addMessage(
@@ -285,75 +286,67 @@ const SeacretspaChatWidget: React.FC = () => {
         })
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to add to cart');
+      if (response.ok) {
+        addMessage(`${product.title} - ${TRANSLATIONS.added}`, true);
+      } else {
+        throw new Error('Cart error');
       }
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Add to cart response is not JSON");
-      }
-
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to add to cart');
-      }
-
-      addMessage(`${product.title} - ${TRANSLATIONS.added}`, true);
     } catch (error) {
       console.error('Add to cart error:', error);
-      addMessage(`${TRANSLATIONS.error} (${error instanceof Error ? error.message : 'Unknown error'})`, true);
+      addMessage(TRANSLATIONS.error, true);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-  
+
     const userMessage = input.trim();
     setInput('');
     setIsLoading(true);
-  
-    // Add user message immediately
-    addMessage(userMessage, false);
-  
-    // Filter messages to only include those with text as a string
-    const messagesToSend = [...messages, { text: userMessage, isBot: false }]
-      .filter(msg => typeof msg.text === 'string');
-  
+
     try {
+      // Add user message immediately
+      addMessage(userMessage, false);
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
-          messages: messagesToSend
+          messages: [...messages, { text: userMessage, isBot: false }]
         })
       });
-  
-      // Check if response is ok and is json
+
+      // First check if response is ok
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-  
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Response is not JSON");
+
+      // Try to get the response text first
+      const responseText = await response.text();
+
+      // Try to parse it as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error('Failed to parse response as JSON:', responseText);
+        throw new Error('Invalid JSON response from server');
       }
-  
-      const data = await response.json();
-  
+
       if (!data.success) {
         throw new Error(data.error || 'Unknown error');
       }
-  
+
       // Handle booking requests
       if (data.hasBooking) {
         handleBookingRequest();
         return;
       }
-  
+
       // Handle product requests
       if (data.hasProductCard && data.products) {
         addMessage(data.content, true);
@@ -368,20 +361,17 @@ const SeacretspaChatWidget: React.FC = () => {
         });
         return;
       }
-  
+
       // Regular message
       addMessage(data.content, true);
-  
+
     } catch (error) {
       console.error('Chat error:', error);
-      addMessage(
-        `${TRANSLATIONS.error} (${error instanceof Error ? error.message : 'Unknown error'})`, 
-        true
-      );
+      addMessage(TRANSLATIONS.error, true);
     } finally {
       setIsLoading(false);
     }
-  };  
+  };
 
   if (chatState === CHAT_STATES.HIDDEN) {
     return null;
