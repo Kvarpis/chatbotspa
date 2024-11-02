@@ -1,199 +1,362 @@
 // pages/api/chat.js
-import { Anthropic, HUMAN_PROMPT, AI_PROMPT } from '@anthropic-ai/sdk';
+import { Anthropic } from '@anthropic-ai/sdk';
 
-export default async function handler(req, res) {
-  // Add CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+// Enhanced fuzzy search with language-aware matching
+function fuzzyMatch(str1, str2) {
+  const normalize = (str) => str.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/[^a-z0-9\s]/g, ''); // Remove special characters
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ 
-      success: false, 
-      error: 'Method not allowed' 
-    });
-  }
-
-  try {
-    // Validate API key
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error('Missing Anthropic API key');
-    }
-
-    // Validate request body
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid request format: messages must be an array',
-      });
-    }
-
-    // Initialize Anthropic client
-    const anthropic = new Anthropic({
-      apiKey: apiKey,
-    });
-
-    // Define the system message
-    const systemMessage = {
-      role: 'system',
-      content: `Du er en kundeserviceassistent for Seacretspa, en eksklusiv spa og skjønnhetsbutikk i Norge.
-        VIKTIGE REGLER:
-        1. Svar alltid på norsk med en vennlig og profesjonell tone
-        2. Hold svarene korte og presise
-        3. For timebestilling:
-           - Hvis kunden ønsker å bestille time, svar med nøyaktig: "BOOKING_REQUEST"
-           - Ikke inkluder annen tekst med BOOKING_REQUEST
-        4. For produktforespørsler:
-           - Hvis kunden spør om produkter, svar med: "PRODUCT_REQUEST:[kategori]"
-           - Kategorier: hudpleie, kroppspleie, makeup, hår, negler
-           - Eksempel: "PRODUCT_REQUEST:hudpleie"`
-    };
-
-    // Filter out messages where msg.text is not a string (e.g., React components)
-    const filteredMessages = messages.filter(msg => typeof msg.text === 'string');
-
-    // Format messages into a single prompt string
-    let prompt = '';
-
-    // Add system message
-    prompt += `${HUMAN_PROMPT} ${systemMessage.content.trim()}\n`;
-
-    // Append each message to the prompt
-    filteredMessages.forEach((msg) => {
-      const rolePrompt = msg.isBot ? AI_PROMPT : HUMAN_PROMPT;
-      prompt += `${rolePrompt} ${msg.text.trim()}\n`;
-    });
-
-    // Add the AI prompt at the end to indicate that it's the assistant's turn to speak
-    prompt += AI_PROMPT;
-
-    // Make Anthropic API call
-    const response = await anthropic.completions.create({
-      model: 'claude-2',
-      max_tokens_to_sample: 1024,
-      prompt: prompt,
-      temperature: 0.7,
-    });
-
-    // Validate response
-    if (!response?.completion) {
-      throw new Error('Invalid response from Anthropic API');
-    }
-
-    const content = response.completion.trim();
-
-    // Handle booking requests
-    if (content === 'BOOKING_REQUEST') {
-      return res.status(200).json({
-        success: true,
-        content: 'For å bestille time, klikk på lenken under:',
-        hasBooking: true,
-        bookingUrl: process.env.NEXT_PUBLIC_BOOKING_URL,
-      });
-    }
-
-    // Handle product requests
-    const productMatch = content.match(/PRODUCT_REQUEST:(\w+)/);
-    if (productMatch) {
-      const category = productMatch[1];
-      try {
-        const products = await getProductsByCategory(category);
-        return res.status(200).json({
-          success: true,
-          content: `Her er noen ${category}-produkter vi anbefaler:`,
-          hasProductCard: true,
-          products,
-        });
-      } catch (error) {
-        console.error('Product fetch error:', error);
-        return res.status(200).json({
-          success: true,
-          content: `Beklager, jeg kunne ikke hente ${category}-produkter akkurat nå. Kan jeg hjelpe deg med noe annet?`,
-        });
+  const s1 = normalize(str1);
+  const s2 = normalize(str2);
+  
+  // Check for exact matches first
+  if (s1 === s2) return true;
+  
+  // Check for substring matches
+  if (s1.includes(s2) || s2.includes(s1)) return true;
+  
+  // Check for word-level matches
+  const words1 = s1.split(/\s+/);
+  const words2 = s2.split(/\s+/);
+  
+  for (const word1 of words1) {
+    for (const word2 of words2) {
+      if (levenshteinDistance(word1, word2) <= Math.min(2, Math.floor(word1.length * 0.3))) {
+        return true;
       }
     }
+  }
+  
+  return false;
+}
 
-    // Regular response
-    return res.status(200).json({
-      success: true,
-      content: content,
-    });
+// Improved Levenshtein distance calculation
+function levenshteinDistance(str1, str2) {
+  const track = Array(str2.length + 1).fill(null).map(() =>
+    Array(str1.length + 1).fill(null));
+    
+  for (let i = 0; i <= str1.length; i += 1) {
+    track[0][i] = i;
+  }
+  for (let j = 0; j <= str2.length; j += 1) {
+    track[j][0] = j;
+  }
+  
+  for (let j = 1; j <= str2.length; j += 1) {
+    for (let i = 1; i <= str1.length; i += 1) {
+      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+      track[j][i] = Math.min(
+        track[j][i - 1] + 1,
+        track[j - 1][i] + 1,
+        track[j - 1][i - 1] + indicator
+      );
+    }
+  }
+  
+  return track[str2.length][str1.length];
+}
+
+// Enhanced product categories with synonyms and common misspellings
+const productCategories = {
+  'hudpleie': ['face', 'facial', 'skin care', 'skincare', 'hudkrem', 'krem', 'cream', 'lotion', 'ansikt', 'ansiktskrem'],
+  'kropp': ['body', 'massage', 'kroppspleie', 'body lotion', 'body cream', 'kroppskrem'],
+  'thalgo': ['thalgo', 'talgo', 'thalgo products', 'thalgo behandling'],
+  'gave': ['gift', 'present', 'gavekort', 'gaveesker', 'gavesett'],
+  'behandling': ['treatment', 'therapy', 'spa', 'massage', 'massasje', 'behandlinger']
+};
+
+// Normalize and prepare search terms
+function normalizeSearchTerm(term) {
+  return term.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+// Enhanced product search function
+async function searchProducts(searchTerm, previousProducts = []) {
+  try {
+    const allProducts = await getAllProducts();
+    if (!allProducts || allProducts.length === 0) {
+      console.error('No products found in store');
+      return [];
+    }
+
+    // If no specific search term, return random available products
+    if (!searchTerm || 
+        searchTerm.toLowerCase().includes('produkter') || 
+        searchTerm.toLowerCase().includes('vis meg')) {
+      return getRandomProducts(allProducts, 3, previousProducts);
+    }
+
+    const normalizedSearchTerm = normalizeSearchTerm(searchTerm);
+    
+    // Score and rank products based on relevance
+    const scoredProducts = allProducts
+      .filter(product => product.available)
+      .map(product => {
+        let score = 0;
+        
+        // Check title match
+        if (fuzzyMatch(product.title, normalizedSearchTerm)) score += 10;
+        
+        // Check description match
+        if (product.description && fuzzyMatch(product.description, normalizedSearchTerm)) score += 5;
+        
+        // Check category matches
+        for (const [ keywords] of Object.entries(productCategories)) {
+          if (keywords.some(keyword => fuzzyMatch(keyword, normalizedSearchTerm))) {
+            score += 8;
+          }
+        }
+        
+        return { ...product, relevanceScore: score };
+      })
+      .filter(product => product.relevanceScore > 0)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    // Filter out previously shown products
+    const newProducts = scoredProducts
+      .filter(product => !previousProducts.includes(product.id))
+      .slice(0, 3);
+
+    // If we don't have enough new products, get random ones
+    if (newProducts.length < 3) {
+      const additionalProducts = getRandomProducts(
+        allProducts.filter(p => !previousProducts.includes(p.id) && 
+                               !newProducts.find(np => np.id === p.id)),
+        3 - newProducts.length
+      );
+      return [...newProducts, ...additionalProducts];
+    }
+
+    return newProducts;
   } catch (error) {
-    console.error('Chat API Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || 'An unexpected error occurred',
-    });
+    console.error('Product search error:', error);
+    return [];
   }
 }
 
-async function getProductsByCategory(category) {
+// Get random products helper
+function getRandomProducts(products, count, excludeIds = []) {
+  return products
+    .filter(p => p.available && !excludeIds.includes(p.id))
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count);
+}
+
+// Fetch all products from Shopify
+async function getAllProducts() {
   try {
     const shopifyUrl = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
     const accessToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
 
-    if (!shopifyUrl || !accessToken) {
-      throw new Error('Missing Shopify configuration');
-    }
-
-    const response = await fetch(`https://${shopifyUrl}/api/2024-01/graphql.json`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': accessToken,
-      },
-      body: JSON.stringify({
-        query: `
-          query ProductsByCategory($category: String!) {
-            products(first: 3, query: $category) {
-              edges {
-                node {
-                  id
-                  title
-                  description
-                  featuredImage {
-                    url
-                  }
-                  priceRange {
-                    minVariantPrice {
+    const query = `
+      {
+        products(first: 250) {
+          edges {
+            node {
+              id
+              title
+              description
+              handle
+              availableForSale
+              featuredImage {
+                url
+                altText
+              }
+              priceRange {
+                minVariantPrice {
+                  amount
+                  currencyCode
+                }
+              }
+              variants(first: 1) {
+                edges {
+                  node {
+                    id
+                    availableForSale
+                    price {
                       amount
+                      currencyCode
                     }
                   }
-                  variants(first: 1) {
-                    edges {
-                      node {
-                        id
-                      }
-                    }
+                }
+              }
+              collections(first: 5) {
+                edges {
+                  node {
+                    title
+                    handle
                   }
                 }
               }
             }
           }
-        `,
-        variables: { category }
-      })
+        }
+      }
+    `;
+
+    const response = await fetch(`https://${shopifyUrl}/api/2023-10/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Storefront-Access-Token': accessToken,
+      },
+      body: JSON.stringify({ query })
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
     const data = await response.json();
     
-    if (!response.ok) {
-      throw new Error(`Shopify API error: ${response.status} - ${JSON.stringify(data)}`);
+    if (data.errors) {
+      console.error('Shopify GraphQL Errors:', data.errors);
+      return [];
     }
 
-    if (!data.data?.products?.edges) {
-      throw new Error('Invalid product data from Shopify');
-    }
-
-    return data.data.products.edges.map(edge => edge.node);
+    return (data.data?.products?.edges || []).map(edge => {
+      const node = edge.node;
+      const variant = node.variants.edges[0]?.node;
+      
+      return {
+        id: node.id,
+        title: node.title,
+        description: node.description || '',
+        handle: node.handle,
+        featuredImage: node.featuredImage ? {
+          url: node.featuredImage.url,
+          altText: node.featuredImage.altText || node.title
+        } : null,
+        variants: {
+          edges: [{
+            node: {
+              id: variant?.id
+            }
+          }]
+        },
+        priceRange: {
+          minVariantPrice: {
+            amount: variant?.price?.amount || node.priceRange?.minVariantPrice?.amount || "0",
+            currencyCode: variant?.price?.currencyCode || 'NOK'
+          }
+        },
+        available: node.availableForSale
+      };
+    });
   } catch (error) {
-    console.error('Shopify API Error:', error);
-    throw error;
+    console.error('Error fetching all products:', error);
+    return [];
+  }
+}
+
+// Store shown products in memory (consider using Redis or similar for production)
+const shownProductsCache = new Map();
+
+// Enhanced system prompt for better product understanding
+const systemPrompt = `
+You are a helpful shopping assistant for Seacretspa, a Norwegian beauty and skincare store. 
+Analyze customer queries carefully to understand their product needs, including:
+- Direct product requests (e.g., "vis meg hudpleieprodukter")
+- Implied needs (e.g., "huden min er tørr" → needs moisturizer)
+- Product categories or types
+- Specific product features or benefits
+- Price ranges
+- Brand names (especially Thalgo)
+
+Always respond in Norwegian and be helpful in understanding what products might best serve the customer's needs.
+
+When you identify a product request, respond with "PRODUCT_REQUEST:" followed by the most relevant search terms.
+For example:
+- "Vis meg hudpleieprodukter" → "PRODUCT_REQUEST:hudpleie"
+- "Jeg trenger en krem for tørr hud" → "PRODUCT_REQUEST:fuktighetskrem"
+- "Har dere Thalgo produkter?" → "PRODUCT_REQUEST:thalgo"
+`;
+
+// Main handler function
+export default async function handler(req, res) {
+  if (!anthropic) {
+    return res.status(500).json({
+      success: false,
+      error: 'API configuration error'
+    });
+  }
+
+  try {
+    const userMessage = req.body.messages[0]?.content || '';
+    const sessionId = req.body.sessionId || 'default';
+
+    // Get previously shown products for this session
+    const previousProducts = shownProductsCache.get(sessionId) || [];
+
+    // Direct product requests
+    if (userMessage.toLowerCase().includes('vis meg') || 
+        userMessage.toLowerCase().includes('produkt') ||
+        userMessage.toLowerCase().includes('krem')) {
+      const products = await searchProducts(userMessage, previousProducts);
+      
+      // Update shown products cache
+      const productIds = products.map(p => p.id);
+      shownProductsCache.set(sessionId, [...previousProducts, ...productIds]);
+
+      return res.status(200).json({
+        success: true,
+        content: 'Her er noen produkter som kan passe for deg:',
+        hasProductCard: true,
+        products: products
+      });
+    }
+
+    // Chat handling with Claude
+    const completion = await anthropic.messages.create({
+      model: "claude-3-sonnet-20240229",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: userMessage
+        }
+      ]
+    });
+
+    const response = completion.content[0].text;
+    
+    // Check if Claude identified a product request
+    if (response.includes('PRODUCT_REQUEST:')) {
+      const searchTerm = response.split('PRODUCT_REQUEST:')[1].trim();
+      const products = await searchProducts(searchTerm, previousProducts);
+      
+      // Update shown products cache
+      const productIds = products.map(p => p.id);
+      shownProductsCache.set(sessionId, [...previousProducts, ...productIds]);
+
+      return res.status(200).json({
+        success: true,
+        content: response.split('PRODUCT_REQUEST:')[0].trim(),
+        hasProductCard: true,
+        products: products
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      content: response
+    });
+
+  } catch (error) {
+    console.error('Handler error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 }

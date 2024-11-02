@@ -1,10 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, ExternalLink } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Send, ExternalLink, ShoppingCart, Calendar } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button, ButtonProps } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import Image from 'next/image';
 
 // Type definitions
 interface Config {
@@ -28,24 +27,34 @@ interface Product {
   id: string;
   title: string;
   description: string;
+  handle: string;
   featuredImage?: {
     url: string;
+    altText?: string;
   };
   variants: {
     edges: Array<{
       node: {
         id: string;
+        availableForSale?: boolean;
+        price?: {
+          amount: string;
+          currencyCode: string;
+        };
       };
     }>;
   };
   priceRange: {
     minVariantPrice: {
       amount: string;
+      currencyCode?: string;
     };
   };
+  available?: boolean;
 }
 
-// Constants for easy configuration
+
+// Constants
 const CONFIG: Config = {
   STORE_URL: process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL,
   STOREFRONT_ACCESS_TOKEN: process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN,
@@ -66,70 +75,283 @@ const CHAT_STATES = {
 
 type ChatState = typeof CHAT_STATES[keyof typeof CHAT_STATES];
 
-// Norwegian translations
+// Enhanced Norwegian translations
 const TRANSLATIONS = {
   welcome: "Velkommen til Seacretspa! Hvordan kan jeg hjelpe deg i dag?",
   askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Bestille time\n3. Svare på spørsmål om våre produkter og tjenester",
   typeMessage: "Skriv din melding...",
   booking: "Bestill time",
+  bookingQuestion: "Hvilken type behandling er du interessert i?\n\nVi tilbyr:\n- Ansiktsbehandling\n- Massasje\n- Voksing\n- Manikyr og Pedikyr\n",
+  bookingPrompt: "Vil du se våre tilgjengelige tider?",
   addToCart: "Legg i handlekurv",
   added: "Lagt til i handlekurven!",
   error: "Beklager, det oppstod en feil. Vennligst prøv igjen.",
-  bookingRedirect: "Klikk her for å bestille time:",
   loading: "Vennligst vent...",
   assistant: "Seacretspa Assistent",
-  chatbubbleAria: "Åpne chat"
+  chatbubbleAria: "Åpne chat",
+  outOfStock: "Utsolgt",
+  adding: "Legger til...",
+  bookNow: "Se tilgjengelige tider",
+  quickActions: {
+    title: "Hva kan jeg hjelpe deg med?",
+    booking: "Bestill time",
+    products: "Finn produkter",
+    questions: "Andre spørsmål"
+  }
 };
 
-// Chat bubble SVG icon component
+// Chat bubble icon
 const ChatBubbleIcon: React.FC = () => (
   <svg 
     viewBox="0 0 24 24" 
-    className="w-8 h-8" 
-    fill="none" 
+    className="w-6 h-6" 
+    fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
   >
-    <path 
-      d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 14.7255 3.09775 17.1962 4.85316 19.0003C4.85316 19.0003 4.11842 20.5003 2 22C2 22 5.5 21.5 7.75 20.5C9.15125 21.4875 10.5188 22 12 22Z" 
-      stroke="white" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round"
-    />
+    <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
   </svg>
 );
 
-// Styled button component
-interface StyledButtonProps extends ButtonProps {
-  children: React.ReactNode;
+// Booking button component
+const BookingButton: React.FC<{
+  onClick: () => void;
+}> = ({ onClick }) => (
+  <button
+    onClick={onClick}
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white hover:opacity-90 transition-all duration-200"
+    style={{ backgroundColor: CONFIG.COLORS.primary }}
+  >
+    <Calendar className="w-4 h-4" />
+    {TRANSLATIONS.bookNow}
+    <ExternalLink className="w-4 h-4" />
+  </button>
+);
+
+interface ProductCardProps {
+  product: Product;
 }
 
-const StyledButton: React.FC<StyledButtonProps> = ({ children, style, ...props }) => (
-  <Button 
-    {...props} 
-    style={{
-      backgroundColor: CONFIG.COLORS.primary,
-      color: 'white',
-      ...style
-    }}
-  >
-    {children}
-  </Button>
+const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const [isAdding, setIsAdding] = useState(false);
+  const [isAdded, setIsAdded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const variant = product.variants.edges[0]?.node;
+  const isAvailable = variant?.availableForSale !== false;
+  
+  const formattedPrice = new Intl.NumberFormat('nb-NO', {
+    style: 'currency',
+    currency: product.priceRange.minVariantPrice.currencyCode || 'NOK',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(parseFloat(product.priceRange.minVariantPrice.amount || "0"));
+
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleSuccess = () => {
+    setIsAdded(true);
+    showNotification(`${product.title} er lagt til i handlekurven`, "success");
+    setTimeout(() => setIsAdded(false), 2000);
+  };
+
+  const handleAddToCart = async () => {
+    if (isAdding || !isAvailable) return;
+    
+    setIsAdding(true);
+    try {
+      if (window.location.hostname === 'localhost') {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const cartData = {
+          id: variant.id,
+          title: product.title,
+          price: product.priceRange.minVariantPrice.amount,
+          quantity: 1,
+          image: product.featuredImage?.url
+        };
+        
+        const existingCart = JSON.parse(localStorage.getItem('seacretCart') || '[]');
+        existingCart.push(cartData);
+        localStorage.setItem('seacretCart', JSON.stringify(existingCart));
+        
+        handleSuccess();
+      } else {
+        const response = await fetch('/api/cart/add', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            variantId: variant.id,
+            quantity: 1
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to add to cart');
+        }
+
+        handleSuccess();
+      }
+    } catch (error) {
+      console.error('Add to cart error:', error);
+      showNotification("Kunne ikke legge til i handlekurven. Prøv igjen senere.", "error");
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  return (
+    <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
+      {notification && (
+        <div 
+          className={`absolute -top-2 right-2 z-10 rounded-md px-3 py-1 text-white text-sm ${
+            notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          }`}
+        >
+          {notification.message}
+        </div>
+      )}
+      
+      <div className="flex gap-3">
+        {/* Image container with fixed dimensions */}
+        <div className="w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-gray-50">
+          {!imageError && product.featuredImage?.url ? (
+            <img
+              src={product.featuredImage.url}
+              alt={product.featuredImage.altText || product.title}
+              className="w-full h-full object-contain"
+              onError={() => setImageError(true)}
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <ShoppingCart className="w-6 h-6 text-gray-400" />
+            </div>
+          )}
+        </div>
+
+        {/* Content container */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Title and price row */}
+          <div className="flex justify-between items-start gap-2">
+            <h3 className="font-medium text-gray-900 text-sm leading-tight line-clamp-2">
+              {product.title}
+            </h3>
+            <span className="font-medium text-gray-900 text-sm whitespace-nowrap">
+              {formattedPrice}
+            </span>
+          </div>
+
+          {/* Description */}
+          <p className="mt-1 text-xs text-gray-500 line-clamp-2 flex-grow">
+            {product.description}
+          </p>
+
+          {/* Button container */}
+          <div className="mt-2 flex justify-end">
+            <button
+              onClick={handleAddToCart}
+              disabled={isAdding || !isAvailable}
+              className={`
+                px-3 py-1.5 rounded text-white text-xs font-medium
+                transition-all duration-300
+                ${isAdded ? 'bg-green-500' : ''}
+                ${!isAvailable ? 'bg-gray-400' : ''}
+                ${!isAdded && isAvailable ? 'hover:opacity-90' : ''}
+              `}
+              style={{ 
+                backgroundColor: isAdded ? '#22c55e' : 
+                               !isAvailable ? '#9CA3AF' : 
+                               CONFIG.COLORS.primary 
+              }}
+            >
+              {isAdding ? (
+                <span className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Legger til...
+                </span>
+              ) : isAdded ? (
+                <span>✓ Lagt til</span>
+              ) : !isAvailable ? (
+                'Utsolgt'
+              ) : (
+                'Legg i handlekurv'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Typing indicator component
+const TypingIndicator: React.FC = () => (
+  <div className="flex justify-start mb-4">
+    <div 
+      className="rounded-lg px-4 py-2"
+      style={{ backgroundColor: CONFIG.COLORS.background }}
+    >
+      <div className="flex gap-1">
+        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+        <div className="w-2 h-2 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+      </div>
+    </div>
+  </div>
+);
+
+// Quick actions component
+const QuickActions: React.FC<{
+  onBooking: () => void;
+  onProducts: () => void;
+  onQuestions: () => void;
+}> = ({ onBooking, onProducts, onQuestions }) => (
+  <div className="border-t mt-4 pt-4">
+    <p className="text-sm mb-2 text-center font-medium" style={{ color: CONFIG.COLORS.text }}>
+      {TRANSLATIONS.quickActions.title}
+    </p>
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={onBooking}
+        className="w-full px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-gray-50"
+        style={{ borderColor: CONFIG.COLORS.primary, color: CONFIG.COLORS.primary }}
+      >
+        {TRANSLATIONS.quickActions.booking}
+      </button>
+      <button
+        onClick={onProducts}
+        className="w-full px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-gray-50"
+        style={{ borderColor: CONFIG.COLORS.primary, color: CONFIG.COLORS.primary }}
+      >
+        {TRANSLATIONS.quickActions.products}
+      </button>
+      <button
+        onClick={onQuestions}
+        className="w-full px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-gray-50"
+        style={{ borderColor: CONFIG.COLORS.primary, color: CONFIG.COLORS.primary }}
+      >
+        {TRANSLATIONS.quickActions.questions}
+      </button>
+    </div>
+  </div>
 );
 
 // Chat message component
-interface ChatMessageProps {
-  message: string | React.ReactNode;
-  isBot: boolean;
-}
-
-const ChatMessage: React.FC<ChatMessageProps> = ({ message, isBot }) => (
+const ChatMessage: React.FC<{ message: string | React.ReactNode; isBot: boolean }> = ({ message, isBot }) => (
   <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
     <div 
-      className="rounded-lg px-4 py-2 max-w-[80%]"
+      className={`rounded-2xl px-4 py-2 max-w-[80%] shadow-sm ${
+        isBot 
+          ? 'rounded-tl-sm bg-white border border-gray-200' 
+          : 'rounded-tr-sm text-white'
+      }`}
       style={{
-        backgroundColor: isBot ? CONFIG.COLORS.background : CONFIG.COLORS.primary,
-        color: isBot ? CONFIG.COLORS.text : 'white',
+        backgroundColor: isBot ? 'white' : CONFIG.COLORS.primary,
         wordBreak: 'break-word'
       }}
     >
@@ -138,162 +360,96 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, isBot }) => (
   </div>
 );
 
-// Product card component
-interface ProductCardProps {
-  product: Product;
-  onAddToCart: (product: Product) => void;
-}
-
-const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart }) => (
-  <div 
-    className="rounded-lg p-4 mb-4 hover:shadow-lg transition-shadow"
-    style={{ backgroundColor: 'white', border: `1px solid ${CONFIG.COLORS.primary}` }}
-  >
-    <div className="flex items-start gap-4">
-      {product.featuredImage && (
-        <Image 
-          src={product.featuredImage.url} 
-          alt={product.title}
-          width={80}
-          height={80}
-          className="object-cover rounded"
-        />
-      )}
-      <div className="flex-1">
-        <h3 className="font-bold" style={{ color: CONFIG.COLORS.text }}>{product.title}</h3>
-        <p className="text-sm line-clamp-2" style={{ color: CONFIG.COLORS.lightText }}>{product.description}</p>
-        <div className="flex justify-between items-center mt-2">
-          <span className="font-semibold">
-            {new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK' }).format(Number(product.priceRange.minVariantPrice.amount))}
-          </span>
-          <StyledButton onClick={() => onAddToCart(product)}>
-            {TRANSLATIONS.addToCart}
-          </StyledButton>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
 // Main chat widget component
 const SeacretspaChatWidget: React.FC = () => {
-  const [chatState, setChatState] = useState<ChatState>(CHAT_STATES.HIDDEN);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    { text: TRANSLATIONS.welcome, isBot: true },
+    { text: TRANSLATIONS.askHelp, isBot: true }
+  ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [cartId, setCartId] = useState<string | null>(null);
+  const [chatState, setChatState] = useState<ChatState>(CHAT_STATES.MINIMIZED);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const addMessage = useCallback((text: string | React.ReactNode, isBot: boolean) => {
-    setMessages(prev => [...prev, { text, isBot }]);
-  }, []);
-
+  // Initialize chat session ID on mount
   useEffect(() => {
-    setTimeout(() => setChatState(CHAT_STATES.MINIMIZED), 2000);
-    initializeCart();
-  }, []);
-
-  useEffect(() => {
-    if (chatState === CHAT_STATES.EXPANDED && messages.length === 0) {
-      addMessage(TRANSLATIONS.welcome, true);
-      addMessage(TRANSLATIONS.askHelp, true);
+    if (!localStorage.getItem('chatSessionId')) {
+      localStorage.setItem('chatSessionId', Math.random().toString(36).substring(7));
     }
-  }, [chatState, messages.length, addMessage]);
+  }, []);
 
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const initializeCart = async () => {
-    try {
-      console.log('Initializing cart...');
-      const response = await fetch('/api/cart/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-      
-      const contentType = response.headers.get("content-type");
-      console.log('Response content type:', contentType);
-      console.log('Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Cart initialization failed:', {
-          status: response.status,
-          body: errorText
-        });
-        return;
-      }
-
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error('Invalid content type:', contentType);
-        return;
-      }
-
-      const data = await response.json();
-      console.log('Cart initialization response:', data);
-
-      if (!data.success || !data.cartId) {
-        console.error('Invalid cart response:', data);
-        return;
-      }
-
-      console.log('Cart initialized successfully:', data.cartId);
-      setCartId(data.cartId);
-    } catch (error) {
-      console.error('Cart initialization error:', error);
-      // Don't throw here, just log the error
-    }
+  const addMessage = (text: string | React.ReactNode, isBot: boolean) => {
+    setMessages(prev => [...prev, { text, isBot }]);
   };
 
-  const handleBookingRequest = () => {
-    addMessage(TRANSLATIONS.bookingRedirect, true);
-    addMessage(
-      <div className="flex flex-col gap-2">
-        <StyledButton 
-          className="flex items-center gap-2"
-          onClick={() => window.open(CONFIG.BOOKING_URL, '_blank')}
-        >
-          {TRANSLATIONS.booking} <ExternalLink className="h-4 w-4" />
-        </StyledButton>
-      </div>,
-      true
-    );
+  // Improved booking flow
+  const handleBooking = () => {
+    addMessage(TRANSLATIONS.bookingQuestion, true);
+    setTimeout(() => {
+      addMessage(TRANSLATIONS.bookingPrompt, true);
+      addMessage(
+        <BookingButton
+          onClick={() => {
+            window.open(CONFIG.BOOKING_URL, '_blank');
+            addMessage("Jeg har åpnet bestillingssiden i en ny fane for deg.", true);
+          }}
+        />,
+        true
+      );
+    }, 500);
   };
 
-  const handleAddToCart = async (product: Product) => {
-    if (!cartId) {
-      await initializeCart();
-      if (!cartId) {
-        addMessage(TRANSLATIONS.error, true);
-        return;
-      }
-    }
-    
+  const handleQuickProducts = async () => {
+    const productMessage = "Vis meg produkter";
+    addMessage(productMessage, false);
+    setInput('');
+    setIsLoading(true);
+
     try {
-      const response = await fetch('/api/cart/add', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          cartId,
-          merchandiseId: product.variants.edges[0].node.id,
-          quantity: 1
+        body: JSON.stringify({
+          messages: [{
+            role: 'user',
+            content: productMessage
+          }],
+          sessionId: localStorage.getItem('chatSessionId')
         })
       });
-      
-      if (response.ok) {
-        addMessage(`${product.title} - ${TRANSLATIONS.added}`, true);
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error('Failed to get products');
+      }
+
+      if (data.hasProductCard && data.products) {
+        addMessage(data.content, true);
+        data.products.forEach((product: Product) => {
+          addMessage(
+            <ProductCard 
+              product={product}
+              key={product.id}
+            />,
+            true
+          );
+        });
       } else {
-        throw new Error('Cart error');
+        addMessage(data.content, true);
       }
     } catch (error) {
-      console.error('Add to cart error:', error);
+      console.error('Products error:', error);
       addMessage(TRANSLATIONS.error, true);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -304,67 +460,42 @@ const SeacretspaChatWidget: React.FC = () => {
     const userMessage = input.trim();
     setInput('');
     setIsLoading(true);
+    addMessage(userMessage, false);
 
     try {
-      // Add user message immediately
-      addMessage(userMessage, false);
-
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
         },
         body: JSON.stringify({
-          messages: [...messages, { text: userMessage, isBot: false }]
+          messages: [{
+            role: 'user',
+            content: userMessage
+          }]
         })
       });
 
-      // First check if response is ok
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Try to get the response text first
-      const responseText = await response.text();
-
-      // Try to parse it as JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        console.error('Failed to parse response as JSON:', responseText);
-        throw new Error('Invalid JSON response from server');
-      }
+      const data = await response.json();
 
       if (!data.success) {
-        throw new Error(data.error || 'Unknown error');
+        throw new Error(data.error || 'Failed to get response');
       }
 
-      // Handle booking requests
-      if (data.hasBooking) {
-        handleBookingRequest();
-        return;
-      }
-
-      // Handle product requests
       if (data.hasProductCard && data.products) {
         addMessage(data.content, true);
         data.products.forEach((product: Product) => {
           addMessage(
             <ProductCard 
               product={product}
-              onAddToCart={handleAddToCart}
+              key={product.id}
             />,
             true
           );
         });
-        return;
+      } else {
+        addMessage(data.content, true);
       }
-
-      // Regular message
-      addMessage(data.content, true);
-
     } catch (error) {
       console.error('Chat error:', error);
       addMessage(TRANSLATIONS.error, true);
@@ -378,68 +509,105 @@ const SeacretspaChatWidget: React.FC = () => {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
-      {chatState === CHAT_STATES.MINIMIZED ? (
-        <Button
-          aria-label={TRANSLATIONS.chatbubbleAria}
-          size="lg"
-          className="rounded-full w-16 h-16 shadow-lg flex items-center justify-center hover:scale-105 transition-transform"
-          onClick={() => setChatState(CHAT_STATES.EXPANDED)}
-          style={{ backgroundColor: CONFIG.COLORS.primary }}
-        >
-          <ChatBubbleIcon />
-        </Button>
-      ) : (
-        <Card 
-          className="w-96"
-          style={{ backgroundColor: CONFIG.COLORS.background }}
-        >
-          <div className="flex justify-between items-center p-4 border-b">
-            <h2 className="font-semibold" style={{ color: CONFIG.COLORS.text }}>
-              {TRANSLATIONS.assistant}
-            </h2>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setChatState(CHAT_STATES.MINIMIZED)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <CardContent className="p-4">
-            <div className="h-[500px] flex flex-col">
-              <ScrollArea className="flex-1 pr-4">
-                {messages.map((message, index) => (
-                  <ChatMessage
-                    key={index}
-                    message={message.text}
-                    isBot={message.isBot}
-                  />
-                ))}
-                <div ref={messagesEndRef} />
-              </ScrollArea>
-              
-              <form onSubmit={handleSubmit} className="flex items-center gap-2 mt-4">
-                <Input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={isLoading ? TRANSLATIONS.loading : TRANSLATIONS.typeMessage}
-                  className="flex-1"
-                  disabled={isLoading}
-                  style={{ backgroundColor: 'white' }}
-                />
-                <StyledButton 
-                  type="submit"
-                  size="icon"
-                  disabled={isLoading}
-                >
-                  <Send className="h-4 w-4" />
-                </StyledButton>
-              </form>
+    // Wrapper with specific z-index and positioning for Shopify integration
+    <div className="fixed bottom-4 right-4" style={{ zIndex: 999 }}>
+      <div className="relative isolate pointer-events-auto">
+        {chatState === CHAT_STATES.MINIMIZED ? (
+          <Button
+            aria-label={TRANSLATIONS.chatbubbleAria}
+            size="icon"
+            className="rounded-full w-14 h-14 shadow-lg flex items-center justify-center hover:scale-105 transition-transform relative"
+            onClick={() => setChatState(CHAT_STATES.EXPANDED)}
+            style={{ 
+              backgroundColor: CONFIG.COLORS.primary,
+              transform: 'rotate(-5deg)'
+            }}
+          >
+            <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full" 
+              style={{ backgroundColor: CONFIG.COLORS.primary }} 
+            />
+            <ChatBubbleIcon />
+          </Button>
+        ) : (
+          <Card 
+            className="w-96 shadow-xl transition-all duration-300 transform"
+            style={{ backgroundColor: CONFIG.COLORS.background }}
+          >
+            <div className="flex justify-between items-center p-4 border-b">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <h2 className="font-semibold" style={{ color: CONFIG.COLORS.text }}>
+                  {TRANSLATIONS.assistant}
+                </h2>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setChatState(CHAT_STATES.MINIMIZED)}
+                className="hover:bg-gray-100 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <CardContent className="p-4">
+              <div className="h-[500px] flex flex-col">
+                <ScrollArea className="flex-1 pr-4 overflow-y-auto">
+                  <div className="space-y-4">
+                    {messages.map((message, index) => (
+                      <ChatMessage
+                        key={index}
+                        message={message.text}
+                        isBot={message.isBot}
+                      />
+                    ))}
+                    {isLoading && <TypingIndicator />}
+                    <div ref={messagesEndRef} />
+                  </div>
+                </ScrollArea>
+                
+                <form onSubmit={handleSubmit} className="flex items-center gap-2 mt-4">
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={isLoading ? TRANSLATIONS.loading : TRANSLATIONS.typeMessage}
+                    className="flex-1 bg-white focus:ring-2 focus:ring-primary focus:border-transparent"
+                    disabled={isLoading}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSubmit(e);
+                      }
+                    }}
+                  />
+                  <Button 
+                    type="submit"
+                    variant="default"
+                    size="icon"
+                    disabled={isLoading || !input.trim()}
+                    className="transition-all duration-200 hover:scale-105"
+                    style={{ 
+                      backgroundColor: CONFIG.COLORS.primary,
+                      opacity: (!input.trim() || isLoading) ? 0.5 : 1 
+                    }}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </form>
+
+                {messages.length <= 2 && !isLoading && (
+                  <QuickActions 
+                    onBooking={handleBooking}
+                    onProducts={handleQuickProducts}
+                    onQuestions={() => {
+                      addMessage("Hvilke spørsmål har du? Jeg er her for å hjelpe!", true);
+                    }}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 };
