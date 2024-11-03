@@ -223,6 +223,9 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
+    // Log the variant ID before sending
+    console.log('Sending variant ID:', variant.id);
+    
     const response = await fetch('/api/cart/add-to-live-store', {
       method: 'POST',
       headers: {
@@ -232,7 +235,7 @@ const handleAddToCart = async () => {
         variantId: variant.id,
         quantity: 1,
       }),
-      credentials: 'include', // Important for cookies
+      credentials: 'include',
     });
 
     const data = await response.json();

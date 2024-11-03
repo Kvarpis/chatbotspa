@@ -8,15 +8,31 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
+      // Ensure variantId exists and extract numeric ID if it's a gid
+      if (!variantId) {
+        throw new Error('Required parameter missing: variantId');
+      }
+  
+      // Extract numeric ID if it's a gid format
+      const numericId = variantId.toString().includes('/')
+        ? variantId.toString().split('/').pop()
+        : variantId;
+  
+      console.log('Processing variant ID:', {
+        original: variantId,
+        numeric: numericId
+      });
+  
       // Add to cart using cart/add.js
       const formData = {
         items: [{
-          id: parseInt(variantId, 10),
+          id: parseInt(numericId, 10),
           quantity: parseInt(quantity, 10)
         }]
       };
   
-      // First request: Add to cart
+      console.log('Sending to Shopify:', formData);
+  
       const addResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: {
@@ -34,6 +50,7 @@ export default async function handler(req, res) {
       }
   
       const addData = await addResponse.json();
+      console.log('Shopify add response:', addData);
   
       // Second request: Get cart state
       const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
