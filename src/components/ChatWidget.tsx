@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CustomCartDrawer } from '../types/shopify';
 
 // Type definitions
 interface Config {
@@ -184,6 +185,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const variant = product.variants.edges[0]?.node;
   const isAvailable = variant?.availableForSale !== false;
   
+  // Price formatting logic
   const formattedPrice = new Intl.NumberFormat('nb-NO', {
     style: 'currency',
     currency: product.priceRange.minVariantPrice.currencyCode || 'NOK',
@@ -196,94 +198,98 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Add this to your handleSuccess function in ProductCard to see the cart URL
-const handleSuccess = async () => {
-  setIsAdded(true);
-  showNotification(`${product.title} er lagt til i handlekurven`, "success");
-  
-  // Add this to get and log the checkout URL
-  try {
-    const response = await fetch('/api/cart/create', {
-      method: 'POST',
-      credentials: 'include'
-    });
-    const data = await response.json();
-    console.log('Checkout URL:', data.checkoutUrl);
-    // Optionally open the cart in a new tab
-    // window.open(data.checkoutUrl, '_blank');
-  } catch (error) {
-    console.error('Error getting checkout URL:', error);
-  }
-  
-  setTimeout(() => setIsAdded(false), 2000);
-};
-
-// Update the handleAddToCart function in your ProductCard component
-
-const handleAddToCart = async () => {
-  if (isAdding || !isAvailable) return;
-
-  setIsAdding(true);
-  try {
-    // Extract numeric ID from the variant ID string
-    const variantId = variant.id.includes('/')
-      ? variant.id.split('/').pop()
-      : variant.id;
-
-    const response = await fetch('/api/cart/add-to-live-store', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        variantId,
-        quantity: 1,
-      }),
-      credentials: 'include' // Important for cookie handling
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Failed to add to cart');
-    }
-
-    // Update cart sections in the DOM
-    if (data.cart?.sections) {
-      Object.entries(data.cart.sections).forEach(([id, html]) => {
-        const element = document.getElementById(`shopify-section-${id}`);
-        if (element) {
-          element.innerHTML = html as string;
-        }
-      });
-    }
-
-    // Trigger cart drawer update if it exists
-    const cartDrawer = document.querySelector('cart-drawer');
-    if (cartDrawer) {
-      const event = new CustomEvent('cart:refresh', {
-        detail: { cart: data.cart }
-      });
-      window.dispatchEvent(event);
-    }
-
-    // Update Shopify's cart object if it exists
-    if (window.Shopify?.onCartUpdate) {
-      window.Shopify.onCartUpdate(data.cart);
-    }
-
-    handleSuccess();
+  const handleSuccess = async () => {
+    setIsAdded(true);
+    showNotification(`${product.title} er lagt til i handlekurven`, "success");
     
-  } catch (error) {
-    console.error('Add to cart error:', error);
-    showNotification(
-      error instanceof Error ? error.message : "Could not add to cart",
-      "error"
-    );
-  } finally {
-    setIsAdding(false);
-  }
-};
+    try {
+      const response = await fetch('/api/cart/create', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await response.json();
+      console.log('Checkout URL:', data.checkoutUrl);
+    } catch (error) {
+      console.error('Error getting checkout URL:', error);
+    }
+    
+    setTimeout(() => setIsAdded(false), 2000);
+
+    // Try to open cart drawer if it exists
+    const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
+    if (cartDrawer?.open) {
+      try {
+        cartDrawer.open();
+      } catch (error) {
+        console.error('Error opening cart drawer:', error);
+      }
+    }
+  };
+
+  const handleAddToCart = async () => {
+    if (isAdding || !isAvailable) return;
+
+    setIsAdding(true);
+    try {
+      const numericId = variant.id.split('/').pop();
+      console.log('Adding to cart:', { variantId: numericId });
+      
+      const response = await fetch('/api/cart/add-to-live-store', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          variantId: numericId,
+          quantity: 1,
+        }),
+        credentials: 'include'
+      });
+
+      const data = await response.json();
+      console.log('Cart response:', data);
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to add to cart');
+      }
+
+      // Update cart sections in the DOM
+      if (data.sections) {
+        Object.entries(data.sections).forEach(([name, html]) => {
+          const element = document.getElementById(`shopify-section-${name}`);
+          if (element) {
+            element.innerHTML = html as string;
+          }
+        });
+      }
+
+      // Update cart count
+      const cartCountElements = document.querySelectorAll('.cart-count-bubble');
+      cartCountElements.forEach(el => {
+        el.textContent = data.totalQuantity.toString();
+      });
+
+      // Trigger cart update events
+      window.dispatchEvent(new CustomEvent('cart:updated', {
+        detail: { cart: data.cart }
+      }));
+
+      if (window.Shopify?.onCartUpdate) {
+        window.Shopify.onCartUpdate(data.cart);
+      }
+
+      handleSuccess();
+
+    } catch (error) {
+      console.error('Add to cart error:', error);
+      showNotification(
+        error instanceof Error ? error.message : "Could not add to cart",
+        "error"
+      );
+    } finally {
+      setIsAdding(false);
+    }
+  };
 
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
