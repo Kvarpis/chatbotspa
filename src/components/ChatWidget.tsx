@@ -185,7 +185,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const variant = product.variants.edges[0]?.node;
   const isAvailable = variant?.availableForSale !== false;
   
-  // Price formatting logic
   const formattedPrice = new Intl.NumberFormat('nb-NO', {
     style: 'currency',
     currency: product.priceRange.minVariantPrice.currencyCode || 'NOK',
@@ -198,41 +197,17 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleSuccess = async () => {
-    setIsAdded(true);
-    showNotification(`${product.title} er lagt til i handlekurven`, "success");
-    
-    try {
-      const response = await fetch('/api/cart/create', {
-        method: 'POST',
-        credentials: 'include'
-      });
-      const data = await response.json();
-      console.log('Checkout URL:', data.checkoutUrl);
-    } catch (error) {
-      console.error('Error getting checkout URL:', error);
-    }
-    
-    setTimeout(() => setIsAdded(false), 2000);
-
-    // Try to open cart drawer if it exists
-    const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
-    if (cartDrawer?.open) {
-      try {
-        cartDrawer.open();
-      } catch (error) {
-        console.error('Error opening cart drawer:', error);
-      }
-    }
-  };
-
   const handleAddToCart = async () => {
     if (isAdding || !isAvailable) return;
-  
+
     setIsAdding(true);
     try {
+      // Extract the numeric ID and log it
       const numericId = variant.id.split('/').pop();
+      console.log('Starting add to cart process for variant:', numericId);
       
+      // Make the API request
+      console.log('Making request to add-to-live-store...');
       const response = await fetch('/api/cart/add-to-live-store', {
         method: 'POST',
         headers: {
@@ -244,32 +219,53 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         }),
         credentials: 'include'
       });
-  
+
+      console.log('Received response:', response.status, response.statusText);
+      
+      // Parse the response
       const data = await response.json();
-  
-      if (!response.ok || !data.success) {
+      console.log('Response data:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || `Server responded with status ${response.status}`);
+      }
+
+      if (!data.success) {
         throw new Error(data.error || 'Failed to add to cart');
       }
-  
-      // Update cart count if it exists
-      const cartCount = document.querySelector('.cart-count-bubble');
-      if (cartCount) {
-        cartCount.textContent = data.totalQuantity.toString();
-      }
-  
-      // Refresh cart drawer or redirect to cart page
-      if (window.location.pathname !== '/cart') {
+
+      // Show success notification
+      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
+
+      // Update cart UI elements safely
+      try {
+        // Update cart count
+        const cartCountElements = document.querySelectorAll('.cart-count-bubble');
+        cartCountElements.forEach(el => {
+          if (el instanceof HTMLElement) {
+            el.textContent = String(data.totalQuantity || '0');
+            el.style.display = (data.totalQuantity > 0) ? 'flex' : 'none';
+          }
+        });
+
+        // Try to open cart drawer
         const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
-        if (cartDrawer?.open) {
+        if (cartDrawer && typeof cartDrawer.open === 'function') {
+          console.log('Opening cart drawer...');
           cartDrawer.open();
         } else {
-          // If no cart drawer, reload the page to show updated cart
-          window.location.reload();
+          console.log('No cart drawer found, showing notification only');
         }
+
+      } catch (uiError) {
+        console.error('Error updating UI elements:', uiError);
+        // Don't throw here - UI updates are non-critical
       }
-  
-      handleSuccess();
-  
+
+      // Set success state
+      setIsAdded(true);
+      setTimeout(() => setIsAdded(false), 2000);
+
     } catch (error) {
       console.error('Add to cart error:', error);
       showNotification(
@@ -294,7 +290,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       )}
       
       <div className="flex gap-3">
-        {/* Image container with fixed dimensions */}
         <div className="w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-gray-50">
           {!imageError && product.featuredImage?.url ? (
             <img
@@ -311,9 +306,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           )}
         </div>
 
-        {/* Content container */}
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* Title and price row */}
           <div className="flex justify-between items-start gap-2">
             <h3 className="font-medium text-gray-900 text-sm leading-tight line-clamp-2">
               {product.title}
@@ -323,15 +316,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             </span>
           </div>
 
-          {/* Description */}
           <p className="mt-1 text-xs text-gray-500 line-clamp-2 flex-grow">
             {product.description}
           </p>
 
-          {/* Button container */}
           <div className="mt-2 flex justify-end">
             <button
-              onClick={handleAddToCart}
+              onClick={(e) => {
+                e.preventDefault();
+                handleAddToCart();
+              }}
               disabled={isAdding || !isAvailable}
               className={`
                 px-3 py-1.5 rounded text-white text-xs font-medium
