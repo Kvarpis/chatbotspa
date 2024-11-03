@@ -223,8 +223,12 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
-    // Log the variant ID before sending
-    console.log('Sending variant ID:', variant.id);
+    // Extract numeric ID from GID
+    const numericId = variant.id.split('/').pop();
+    console.log('Sending variant ID:', {
+      original: variant.id,
+      numeric: numericId
+    });
     
     const response = await fetch('/api/cart/add-to-live-store', {
       method: 'POST',
@@ -232,7 +236,7 @@ const handleAddToCart = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        variantId: variant.id,
+        variantId: numericId, // Send only the numeric ID
         quantity: 1,
       }),
       credentials: 'include',
@@ -251,14 +255,19 @@ const handleAddToCart = async () => {
       localStorage.setItem('checkoutUrl', data.checkoutUrl);
     }
 
-    // Update any cart UI elements
-    if (typeof window.Shopify?.onCartUpdate === 'function') {
-      window.Shopify.onCartUpdate(data.cart);
+    // Update cart UI
+    if (data.sections) {
+      Object.entries(data.sections).forEach(([name, html]) => {
+        const element = document.getElementById(`shopify-section-${name}`);
+        if (element) {
+          element.innerHTML = html as string;
+        }
+      });
     }
 
     handleSuccess();
 
-    // Optionally refresh the cart section
+    // Refresh cart if we're on the cart page
     if (window.location.pathname === '/cart') {
       window.location.reload();
     }

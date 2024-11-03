@@ -8,31 +8,25 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
-      // Ensure variantId exists and extract numeric ID if it's a gid
       if (!variantId) {
         throw new Error('Required parameter missing: variantId');
       }
   
-      // Extract numeric ID if it's a gid format
-      const numericId = variantId.toString().includes('/')
-        ? variantId.toString().split('/').pop()
-        : variantId;
-  
-      console.log('Processing variant ID:', {
-        original: variantId,
-        numeric: numericId
+      console.log('Processing add to cart:', {
+        variantId,
+        quantity,
+        shopifyUrl
       });
   
       // Add to cart using cart/add.js
       const formData = {
         items: [{
-          id: parseInt(numericId, 10),
+          id: parseInt(variantId, 10),
           quantity: parseInt(quantity, 10)
         }]
       };
   
-      console.log('Sending to Shopify:', formData);
-  
+      // First request: Add to cart
       const addResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: {
@@ -40,7 +34,6 @@ export default async function handler(req, res) {
           'Accept': 'application/json',
           'Cookie': req.headers.cookie || ''
         },
-        credentials: 'include',
         body: JSON.stringify(formData)
       });
   
@@ -50,34 +43,33 @@ export default async function handler(req, res) {
       }
   
       const addData = await addResponse.json();
-      console.log('Shopify add response:', addData);
+      console.log('Add to cart response:', addData);
   
-      // Second request: Get cart state
+      // Second request: Get updated cart state
       const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
         headers: {
           'Accept': 'application/json',
           'Cookie': req.headers.cookie || ''
-        },
-        credentials: 'include'
+        }
       });
   
       const cartData = await cartResponse.json();
+      console.log('Updated cart state:', cartData);
   
-      // Third request: Get cart sections HTML
+      // Third request: Get sections HTML
       const sectionsResponse = await fetch(
-        `https://${shopifyUrl}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text,cart-notification`,
+        `https://${shopifyUrl}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text`,
         {
           headers: {
             'Accept': 'application/json',
             'Cookie': req.headers.cookie || ''
-          },
-          credentials: 'include'
+          }
         }
       );
   
       const sectionsData = await sectionsResponse.json();
   
-      // Forward any set-cookie headers from Shopify
+      // Forward cookies from all responses
       const cookies = [
         addResponse.headers.get('set-cookie'),
         cartResponse.headers.get('set-cookie'),
@@ -91,8 +83,6 @@ export default async function handler(req, res) {
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
       return res.status(200).json({
         success: true,
@@ -100,7 +90,7 @@ export default async function handler(req, res) {
         cart: cartData,
         checkoutUrl: `https://${shopifyUrl}/cart`,
         sections: sectionsData,
-        totalQuantity: cartData.item_count
+        totalQuantity: cartData.item_count || 0
       });
   
     } catch (error) {
