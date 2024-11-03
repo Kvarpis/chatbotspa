@@ -232,28 +232,34 @@ const handleAddToCart = async () => {
         variantId: variant.id,
         quantity: 1,
       }),
-      credentials: 'include', // Important for maintaining session
+      credentials: 'include', // Important for cookies
     });
 
     const data = await response.json();
+    console.log('Cart response:', data);
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Failed to add to cart');
     }
 
-    // Store checkout URL in localStorage
-    if (data.checkoutUrl) {
+    // Store cart data
+    if (data.cart) {
+      localStorage.setItem('cartData', JSON.stringify(data.cart));
       localStorage.setItem('checkoutUrl', data.checkoutUrl);
-      console.log('Checkout URL:', data.checkoutUrl);
     }
 
-    // Update cart count if available
-    if (data.cart?.item_count) {
-      // Update any cart counters in your UI
-      console.log('Cart count:', data.cart.item_count);
+    // Update any cart UI elements
+    if (typeof window.Shopify?.onCartUpdate === 'function') {
+      window.Shopify.onCartUpdate(data.cart);
     }
 
     handleSuccess();
+
+    // Optionally refresh the cart section
+    if (window.location.pathname === '/cart') {
+      window.location.reload();
+    }
+
   } catch (error: unknown) {
     console.error('Add to cart error:', error);
     const errorMessage = error instanceof Error 

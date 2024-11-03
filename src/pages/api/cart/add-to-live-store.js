@@ -8,14 +8,24 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
-      // Add to cart using cart.js
+      // First, get the current cart state
+      const cartStateResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': req.headers.cookie || ''
+        }
+      });
+      
+      console.log('Current cart state:', await cartStateResponse.clone().json());
+  
+      // Add to cart using cart/add.js
       const addResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           'Cookie': req.headers.cookie || ''
         },
-        credentials: 'include',
         body: JSON.stringify({
           items: [{
             id: parseInt(variantId, 10),
@@ -25,41 +35,60 @@ export default async function handler(req, res) {
       });
   
       const addData = await addResponse.json();
+      console.log('Add to cart response:', addData);
   
-      // Get current cart state
-      const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
+      // Get updated cart state
+      const updatedCartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
         headers: {
+          'Content-Type': 'application/json',
           'Cookie': req.headers.cookie || ''
         }
       });
-      const cartData = await cartResponse.json();
+      
+      const cartData = await updatedCartResponse.json();
+      console.log('Updated cart state:', cartData);
   
-      // Get checkout URL
-      const checkoutUrl = `https://${shopifyUrl}/cart`;
-  
-      // Forward any set-cookie headers from Shopify
-      const cookies = addResponse.headers.get('set-cookie');
-      if (cookies) {
-        res.setHeader('Set-Cookie', cookies);
+      // Forward all cookies from Shopify responses
+      const addCookies = addResponse.headers.get('set-cookie');
+      const cartCookies = updatedCartResponse.headers.get('set-cookie');
+      
+      const allCookies = [addCookies, cartCookies]
+        .filter(Boolean)
+        .join('; ');
+      
+      if (allCookies) {
+        res.setHeader('Set-Cookie', allCookies);
       }
   
-      // Set CORS headers
+      // Set proper CORS headers
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
+      // Return cart data with proper URLs
       return res.status(200).json({
         success: true,
         items: addData,
         cart: cartData,
-        checkoutUrl: checkoutUrl,
-        totalQuantity: cartData.item_count
+        checkoutUrl: `https://${shopifyUrl}/cart`,
+        cartUpdateUrl: `https://${shopifyUrl}/cart/update.js`,
+        cartClearUrl: `https://${shopifyUrl}/cart/clear.js`,
+        totalQuantity: cartData.item_count,
+        debug: {
+          cookies: req.headers.cookie,
+          setCookies: allCookies
+        }
       });
   
     } catch (error) {
       console.error('Error adding to live store cart:', error);
       return res.status(500).json({ 
         error: error.message,
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          cookies: req.headers.cookie
+        } : undefined
       });
     }
   }
