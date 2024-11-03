@@ -67,8 +67,10 @@ export default async function handler(req, res) {
       throw new Error(data.data.cartCreate.userErrors[0].message);
     }
 
-    // Store cart ID in session for future use
-    res.setHeader('Set-Cookie', `cartId=${data.data.cartCreate.cart.id}; Path=/; SameSite=Strict`);
+    // Set proper CORS and cookie headers
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.setHeader('Set-Cookie', `cartId=${data.data.cartCreate.cart.id}; Path=/; SameSite=None; Secure`);
 
     return res.status(200).json(data.data.cartCreate.cart);
   } catch (error) {
