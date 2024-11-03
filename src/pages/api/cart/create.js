@@ -11,27 +11,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { variantId, quantity = 1 } = req.body;
-    let { cartId } = req.cookies;
-
-    // If no cartId exists, create a new cart first
-    if (!cartId) {
-      const createCartResponse = await fetch(`${req.headers.origin}/api/cart/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const newCart = await createCartResponse.json();
-      cartId = newCart.id;
-    }
-
     const mutation = `
-      mutation cartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
-        cartLinesAdd(cartId: $cartId, lines: $lines) {
+      mutation cartCreate {
+        cartCreate {
           cart {
             id
+            checkoutUrl
+            createdAt
+            updatedAt
             lines(first: 10) {
               edges {
                 node {
@@ -59,16 +46,6 @@ export default async function handler(req, res) {
       }
     `;
 
-    const variables = {
-      cartId,
-      lines: [
-        {
-          merchandiseId: variantId,
-          quantity,
-        },
-      ],
-    };
-
     const headers = {
       'Content-Type': 'application/json',
       'X-Shopify-Storefront-Access-Token': storefrontAccessToken,
@@ -77,7 +54,7 @@ export default async function handler(req, res) {
     const response = await fetch(`https://${shopifyUrl}/api/2023-10/graphql.json`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ query: mutation, variables }),
+      body: JSON.stringify({ query: mutation }),
     });
 
     const data = await response.json();
@@ -86,13 +63,16 @@ export default async function handler(req, res) {
       throw new Error(data.errors[0].message);
     }
 
-    if (data.data.cartLinesAdd.userErrors.length > 0) {
-      throw new Error(data.data.cartLinesAdd.userErrors[0].message);
+    if (data.data.cartCreate.userErrors.length > 0) {
+      throw new Error(data.data.cartCreate.userErrors[0].message);
     }
 
-    return res.status(200).json(data.data.cartLinesAdd.cart);
+    // Store cart ID in session for future use
+    res.setHeader('Set-Cookie', `cartId=${data.data.cartCreate.cart.id}; Path=/; SameSite=Strict`);
+
+    return res.status(200).json(data.data.cartCreate.cart);
   } catch (error) {
-    console.error('Add to cart error:', error);
-    return res.status(500).json({ error: 'Failed to add item to cart' });
+    console.error('Cart creation error:', error);
+    return res.status(500).json({ error: 'Failed to create cart' });
   }
 }

@@ -163,46 +163,34 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     
     setIsAdding(true);
     try {
-      if (window.location.hostname === 'localhost') {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const cartData = {
-          id: variant.id,
-          title: product.title,
-          price: product.priceRange.minVariantPrice.amount,
-          quantity: 1,
-          image: product.featuredImage?.url
-        };
-        
-        const existingCart = JSON.parse(localStorage.getItem('seacretCart') || '[]');
-        existingCart.push(cartData);
-        localStorage.setItem('seacretCart', JSON.stringify(existingCart));
-        
-        handleSuccess();
-      } else {
-        const response = await fetch('/api/cart/add', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            variantId: variant.id,
-            quantity: 1
-          })
-        });
+      const response = await fetch('/api/cart/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          variantId: variant.id,
+          quantity: 1
+        })
+      });
 
-        if (!response.ok) {
-          throw new Error('Failed to add to cart');
-        }
-
-        handleSuccess();
+      if (!response.ok) {
+        throw new Error('Failed to add to cart');
       }
+
+      const cartData = await response.json();
+      handleSuccess();
+      
+      // Optionally handle the returned cart data
+      // For example, you could update a cart counter in the UI
+      
     } catch (error) {
       console.error('Add to cart error:', error);
       showNotification("Kunne ikke legge til i handlekurven. Prøv igjen senere.", "error");
     } finally {
       setIsAdding(false);
     }
-  };
+};
 
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
@@ -510,7 +498,7 @@ const SeacretspaChatWidget: React.FC = () => {
 
   return (
     // Wrapper with specific z-index and positioning for Shopify integration
-    <div className="fixed bottom-4 right-4" style={{ zIndex: 999 }}>
+    <div className="chat wrapper fixed bottom-4 right-4" style={{ zIndex: 999 }}>
       <div className="relative isolate pointer-events-auto">
         {chatState === CHAT_STATES.MINIMIZED ? (
           <Button
