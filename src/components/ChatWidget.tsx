@@ -178,11 +178,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         throw new Error('Failed to add to cart');
       }
 
-      const cartData = await response.json();
+      // Remove the cartData variable since we're not using it
+      await response.json(); // just consume the response
       handleSuccess();
-      
-      // Optionally handle the returned cart data
-      // For example, you could update a cart counter in the UI
       
     } catch (error) {
       console.error('Add to cart error:', error);
