@@ -234,6 +234,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         throw new Error(data.error || 'Failed to add to cart');
       }
 
+      if (data.cart && data.cart.item_count === 0) {
+        throw new Error('Item was not added to cart - check inventory availability');
+      }
+
       // Show success notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
 
