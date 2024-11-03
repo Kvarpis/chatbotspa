@@ -179,7 +179,6 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
-    // Extract numeric ID from the GraphQL ID
     const numericId = variant.id.split('/').pop();
     
     console.log('Adding product to cart:', {
@@ -188,65 +187,47 @@ const handleAddToCart = async () => {
       quantity: 1
     });
 
-    // First, add to headless cart
-    const response = await fetch('/api/cart/add', {
+    // Only update live store cart
+    const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       credentials: 'include',
       body: JSON.stringify({
-        variantId: variant.id,
-        quantity: 1,
-      }),
+        variantId: numericId,
+        quantity: 1
+      })
     });
+    
+    const liveStoreData = await liveStoreResponse.json();
+    console.log('Live store update response:', liveStoreData);
 
-    const data = await response.json();
-    console.log('Add to cart response:', data);
-
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to add to cart');
+    if (!liveStoreData.success) {
+      throw new Error('Failed to add to cart');
     }
 
-    // Then update live store cart with numeric ID
-    try {
-      const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          variantId: numericId,
-          quantity: 1
-        })
-      });
-      const liveStoreData = await liveStoreResponse.json();
-      console.log('Live store update response:', liveStoreData);
-
-      // Update the cart counter
-      const cartBubble = document.querySelector('.cart-count-bubble');
-      if (cartBubble) {
-        const visibleCounter = cartBubble.querySelector('[aria-hidden="true"]');
-        const hiddenCounter = cartBubble.querySelector('.visually-hidden');
-        
-        if (visibleCounter instanceof HTMLElement) {
-          visibleCounter.textContent = liveStoreData.items.length.toString();
-          // Add animation
-          visibleCounter.style.transform = 'scale(1.1)';
-          setTimeout(() => {
-            visibleCounter.style.transform = 'scale(1)';
-          }, 200);
-        }
-        
-        if (hiddenCounter instanceof HTMLElement) {
-          hiddenCounter.textContent = `${liveStoreData.items.length} vare${liveStoreData.items.length === 1 ? '' : 'r'}`;
-        }
+    // Update the cart counter
+    const cartBubble = document.querySelector('.cart-count-bubble');
+    if (cartBubble) {
+      const visibleCounter = cartBubble.querySelector('[aria-hidden="true"]');
+      const hiddenCounter = cartBubble.querySelector('.visually-hidden');
+      
+      if (visibleCounter instanceof HTMLElement) {
+        visibleCounter.textContent = liveStoreData.cart.item_count.toString();
+        visibleCounter.style.transform = 'scale(1.1)';
+        setTimeout(() => {
+          visibleCounter.style.transform = 'scale(1)';
+        }, 200);
       }
-    } catch (liveStoreError) {
-      console.error('Error updating live store:', liveStoreError);
+      
+      if (hiddenCounter instanceof HTMLElement) {
+        hiddenCounter.textContent = `${liveStoreData.cart.item_count} vare${liveStoreData.cart.item_count === 1 ? '' : 'r'}`;
+      }
     }
 
     handleSuccess();
+    showNotification(`${product.title} er lagt til i handlekurven`, "success");
 
   } catch (error) {
     console.error('Add to cart error:', error);
@@ -435,6 +416,17 @@ const SeacretspaChatWidget: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Add the new useEffect right here, after the above ones
+useEffect(() => {
+  // Post message to parent when chat state changes
+  if (window.parent !== window) {
+    window.parent.postMessage(
+      chatState === CHAT_STATES.EXPANDED ? 'expand' : 'minimize',
+      '*'
+    );
+  }
+}, [chatState]);
 
   const addMessage = (text: string | React.ReactNode, isBot: boolean) => {
     setMessages(prev => [...prev, { text, isBot }]);
