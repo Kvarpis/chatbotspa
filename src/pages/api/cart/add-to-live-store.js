@@ -9,12 +9,12 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
-      // Forward the user's cookies to maintain their session
+      // Forward any cookies from the request to maintain session
       const response = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Cookie': req.headers.cookie || '', // Forward the user's cookies
+          'Cookie': req.headers.cookie || ''
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -25,29 +25,33 @@ export default async function handler(req, res) {
         })
       });
   
-      // Forward Shopify's set-cookie headers in the response
+      // Forward any set-cookie headers from Shopify
       const cookies = response.headers.get('set-cookie');
       if (cookies) {
         res.setHeader('Set-Cookie', cookies);
       }
   
       const data = await response.json();
-      
-      // After adding item, get the current cart state
+  
+      // Get current cart state
       const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
         headers: {
-          'Cookie': req.headers.cookie || '',
-        },
-        credentials: 'include',
+          'Cookie': req.headers.cookie || ''
+        }
       });
-      
       const cartData = await cartResponse.json();
   
       res.status(200).json({
         success: true,
         items: data,
-        cart: cartData
+        cart: cartData,
+        sections: [
+          'cart-icon-bubble',
+          'cart-live-region-text',
+          'cart-notification'
+        ]
       });
+  
     } catch (error) {
       console.error('Error adding to live store cart:', error);
       res.status(500).json({ error: error.message });

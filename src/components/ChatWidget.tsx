@@ -53,6 +53,13 @@ interface Product {
   available?: boolean;
 }
 
+declare global {
+  interface Window {
+    Shopify?: {
+      onCartUpdate?: (cart: any) => void;
+    };
+  }
+}
 
 // Constants
 const CONFIG: Config = {
@@ -179,6 +186,7 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
+    // Extract numeric ID from the GraphQL ID
     const numericId = variant.id.split('/').pop();
     
     console.log('Adding product to cart:', {
@@ -187,47 +195,57 @@ const handleAddToCart = async () => {
       quantity: 1
     });
 
-    // Only update live store cart
-    const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        variantId: numericId,
-        quantity: 1
-      })
-    });
-    
-    const liveStoreData = await liveStoreResponse.json();
-    console.log('Live store update response:', liveStoreData);
+    // Then update live store cart with numeric ID
+    try {
+      const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          variantId: numericId,
+          quantity: 1
+        })
+      });
+      const liveStoreData = await liveStoreResponse.json();
+      console.log('Live store update response:', liveStoreData);
 
-    if (!liveStoreData.success) {
-      throw new Error('Failed to add to cart');
-    }
-
-    // Update the cart counter
-    const cartBubble = document.querySelector('.cart-count-bubble');
-    if (cartBubble) {
-      const visibleCounter = cartBubble.querySelector('[aria-hidden="true"]');
-      const hiddenCounter = cartBubble.querySelector('.visually-hidden');
-      
-      if (visibleCounter instanceof HTMLElement) {
-        visibleCounter.textContent = liveStoreData.cart.item_count.toString();
-        visibleCounter.style.transform = 'scale(1.1)';
-        setTimeout(() => {
-          visibleCounter.style.transform = 'scale(1)';
-        }, 200);
+      // Trigger cart update event for theme
+      if (window.Shopify && window.Shopify.onCartUpdate) {
+        window.Shopify.onCartUpdate(liveStoreData.cart);
       }
-      
-      if (hiddenCounter instanceof HTMLElement) {
-        hiddenCounter.textContent = `${liveStoreData.cart.item_count} vare${liveStoreData.cart.item_count === 1 ? '' : 'r'}`;
-      }
-    }
 
-    handleSuccess();
-    showNotification(`${product.title} er lagt til i handlekurven`, "success");
+      // Update cart counter and notification
+      const cartIconBubble = document.getElementById('cart-icon-bubble');
+      if (cartIconBubble) {
+        const cartCount = liveStoreData.cart.item_count;
+        
+        // Update or create cart count bubble
+        let countBubble = cartIconBubble.querySelector('.cart-count-bubble');
+        if (!countBubble) {
+          countBubble = document.createElement('div');
+          countBubble.className = 'cart-count-bubble';
+          cartIconBubble.appendChild(countBubble);
+        }
+
+        countBubble.innerHTML = `
+          <span aria-hidden="true">${cartCount}</span>
+          <span class="visually-hidden">${cartCount} vare${cartCount === 1 ? '' : 'r'}</span>
+        `;
+      }
+
+      // Store checkout URL if needed
+      if (liveStoreData.cart.checkout_url) {
+        localStorage.setItem('cartCheckoutUrl', liveStoreData.cart.checkout_url);
+      }
+
+      handleSuccess();
+
+    } catch (liveStoreError) {
+      console.error('Error updating live store:', liveStoreError);
+      throw liveStoreError; // Re-throw to be caught by outer catch
+    }
 
   } catch (error) {
     console.error('Add to cart error:', error);
@@ -236,7 +254,6 @@ const handleAddToCart = async () => {
     setIsAdding(false);
   }
 };
-
 
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
