@@ -9,45 +9,33 @@ export default async function handler(req, res) {
     
     try {
       const { variantId, quantity = 1 } = req.body;
-      
-      // First, get the current cart session token from Shopify
-      const getCartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
+      console.log('Received request to add:', { variantId, quantity });
+  
+      // First get current cart state
+      const cartStateResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
         headers: {
           'Content-Type': 'application/json',
           ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
-        },
-        credentials: 'include'
+        }
       });
-  
-      const currentCart = await getCartResponse.json();
+      
+      const currentCart = await cartStateResponse.json();
       console.log('Current cart state:', currentCart);
   
-      // Get the cart token from the response headers
-      const cartToken = getCartResponse.headers.get('set-cookie')?.match(/cart=([^;]+)/)?.[1];
-      console.log('Cart token:', cartToken);
-  
-      // Prepare headers for subsequent requests
-      const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      };
-  
-      if (cartToken) {
-        headers['Cookie'] = `cart=${cartToken}`;
-      }
-  
-      // Add to cart with the synchronized session
+      // Add to cart
       const addToCartResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+        },
         body: JSON.stringify({
           items: [{
             id: parseInt(variantId, 10),
             quantity: parseInt(quantity, 10)
           }]
-        }),
-        credentials: 'include'
+        })
       });
   
       if (!addToCartResponse.ok) {
@@ -60,46 +48,70 @@ export default async function handler(req, res) {
   
       // Get updated cart state
       const updatedCartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
-        headers,
-        credentials: 'include'
+        headers: {
+          'Content-Type': 'application/json',
+          ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+        }
       });
   
       const updatedCart = await updatedCartResponse.json();
       console.log('Updated cart state:', updatedCart);
   
-      // Get sections for cart drawer update
-      const sectionsResponse = await fetch(`https://${shopifyUrl}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer&t=${Date.now()}`, {
-        headers,
-        credentials: 'include'
-      });
+      // Get cart sections
+      const sectionsResponse = await fetch(
+        `https://${shopifyUrl}/cart?view=ajax&sections=cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+          }
+        }
+      );
   
       const sectionsData = await sectionsResponse.json();
   
-      // Forward any cart cookies from Shopify to the client
+      // Forward cookies from Shopify to maintain session
       const cartCookies = addToCartResponse.headers.get('set-cookie');
       if (cartCookies) {
-        res.setHeader('Set-Cookie', cartCookies);
+        res.setHeader('Set-Cookie', cartCookies.split(','));
       }
   
-      // Set proper CORS headers for cross-origin requests
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+      // Calculate actual total quantity and price
+      const totalQuantity = updatedCart.items.reduce((sum, item) => sum + item.quantity, 0);
+      const totalPrice = updatedCart.total_price;
   
-      // Return comprehensive response
       return res.status(200).json({
         success: true,
         items: addToCartData,
-        cart: updatedCart,
+        cart: {
+          ...updatedCart,
+          total_quantity: totalQuantity,
+          formatted_total_price: new Intl.NumberFormat('nb-NO', {
+            style: 'currency',
+            currency: 'NOK'
+          }).format(totalPrice / 100)
+        },
         checkoutUrl: `https://${shopifyUrl}/cart`,
         sections: sectionsData,
-        totalQuantity: updatedCart.item_count || 0
+        totalQuantity,
+        debug: {
+          cartToken: req.headers.cookie?.match(/cart=([^;]+)/)?.[1],
+          cartState: {
+            before: currentCart,
+            after: updatedCart
+          }
+        }
       });
   
     } catch (error) {
-      console.error('Error adding to cart:', error);
+      console.error('Cart error:', error);
       return res.status(500).json({ 
         success: false,
-        error: error.message
+        error: error.message,
+        debug: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          cookies: req.headers.cookie
+        } : undefined
       });
     }
   }

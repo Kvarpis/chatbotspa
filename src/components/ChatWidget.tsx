@@ -228,7 +228,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const handleAddToCart = async () => {
     if (isAdding || !isAvailable) return;
-
+  
     setIsAdding(true);
     try {
       const numericId = variant.id.split('/').pop();
@@ -243,16 +243,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           variantId: numericId,
           quantity: 1,
         }),
-        credentials: 'include'
+        credentials: 'include'  // Important for cookie handling
       });
-
+  
       const data = await response.json();
       console.log('Cart response:', data);
-
+  
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to add to cart');
       }
-
+  
       // Update cart sections in the DOM
       if (data.sections) {
         Object.entries(data.sections).forEach(([name, html]) => {
@@ -262,24 +262,43 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           }
         });
       }
-
-      // Update cart count
+  
+      // Update cart count bubbles
       const cartCountElements = document.querySelectorAll('.cart-count-bubble');
       cartCountElements.forEach(el => {
-        el.textContent = data.totalQuantity.toString();
+        if (el instanceof HTMLElement) {
+          el.textContent = data.totalQuantity.toString();
+          // Make sure the bubble is visible
+          el.style.display = data.totalQuantity > 0 ? 'flex' : 'none';
+        }
       });
-
+  
+      // Try to open cart drawer
+      try {
+        const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
+        if (cartDrawer?.open) {
+          cartDrawer.open();
+        } else {
+          // Fallback: redirect to cart page if no drawer
+          window.location.href = data.checkoutUrl;
+        }
+      } catch (error) {
+        console.error('Cart drawer error:', error);
+        // Fallback: redirect to cart page
+        window.location.href = data.checkoutUrl;
+      }
+  
       // Trigger cart update events
       window.dispatchEvent(new CustomEvent('cart:updated', {
         detail: { cart: data.cart }
       }));
-
+  
       if (window.Shopify?.onCartUpdate) {
         window.Shopify.onCartUpdate(data.cart);
       }
-
+  
       handleSuccess();
-
+  
     } catch (error) {
       console.error('Add to cart error:', error);
       showNotification(
