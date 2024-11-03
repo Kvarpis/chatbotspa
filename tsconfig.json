@@ -32,6 +32,6 @@
     "src/pages/**/*.tsx",
     "src/utils/**/*.ts",
     "next.config.js"
-  ],
+, "src/pages/api/cart/create.js"  ],
   "exclude": ["node_modules"]
 }

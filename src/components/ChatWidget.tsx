@@ -152,43 +152,110 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleSuccess = () => {
-    setIsAdded(true);
-    showNotification(`${product.title} er lagt til i handlekurven`, "success");
-    setTimeout(() => setIsAdded(false), 2000);
-  };
+  // Add this to your handleSuccess function in ProductCard to see the cart URL
+const handleSuccess = async () => {
+  setIsAdded(true);
+  showNotification(`${product.title} er lagt til i handlekurven`, "success");
+  
+  // Add this to get and log the checkout URL
+  try {
+    const response = await fetch('/api/cart/create', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    const data = await response.json();
+    console.log('Checkout URL:', data.checkoutUrl);
+    // Optionally open the cart in a new tab
+    // window.open(data.checkoutUrl, '_blank');
+  } catch (error) {
+    console.error('Error getting checkout URL:', error);
+  }
+  
+  setTimeout(() => setIsAdded(false), 2000);
+};
 
-  const handleAddToCart = async () => {
-    if (isAdding || !isAvailable) return;
+const handleAddToCart = async () => {
+  if (isAdding || !isAvailable) return;
+
+  setIsAdding(true);
+  try {
+    // Extract numeric ID from the GraphQL ID
+    const numericId = variant.id.split('/').pop();
     
-    setIsAdding(true);
+    console.log('Adding product to cart:', {
+      variantId: variant.id,
+      numericId: numericId,
+      quantity: 1
+    });
+
+    // First, add to headless cart
+    const response = await fetch('/api/cart/add', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        variantId: variant.id,
+        quantity: 1,
+      }),
+    });
+
+    const data = await response.json();
+    console.log('Add to cart response:', data);
+
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to add to cart');
+    }
+
+    // Then update live store cart with numeric ID
     try {
-      const response = await fetch('/api/cart/add', {
+      const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          variantId: variant.id,
+          variantId: numericId,
           quantity: 1
         })
       });
+      const liveStoreData = await liveStoreResponse.json();
+      console.log('Live store update response:', liveStoreData);
 
-      if (!response.ok) {
-        throw new Error('Failed to add to cart');
+      // Update the cart counter
+      const cartBubble = document.querySelector('.cart-count-bubble');
+      if (cartBubble) {
+        const visibleCounter = cartBubble.querySelector('[aria-hidden="true"]');
+        const hiddenCounter = cartBubble.querySelector('.visually-hidden');
+        
+        if (visibleCounter instanceof HTMLElement) {
+          visibleCounter.textContent = liveStoreData.items.length.toString();
+          // Add animation
+          visibleCounter.style.transform = 'scale(1.1)';
+          setTimeout(() => {
+            visibleCounter.style.transform = 'scale(1)';
+          }, 200);
+        }
+        
+        if (hiddenCounter instanceof HTMLElement) {
+          hiddenCounter.textContent = `${liveStoreData.items.length} vare${liveStoreData.items.length === 1 ? '' : 'r'}`;
+        }
       }
-
-      // Remove the cartData variable since we're not using it
-      await response.json(); // just consume the response
-      handleSuccess();
-      
-    } catch (error) {
-      console.error('Add to cart error:', error);
-      showNotification("Kunne ikke legge til i handlekurven. Prøv igjen senere.", "error");
-    } finally {
-      setIsAdding(false);
+    } catch (liveStoreError) {
+      console.error('Error updating live store:', liveStoreError);
     }
+
+    handleSuccess();
+
+  } catch (error) {
+    console.error('Add to cart error:', error);
+    showNotification("Kunne ikke legge til i handlekurven. Prøv igjen senere.", "error");
+  } finally {
+    setIsAdding(false);
+  }
 };
+
 
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
