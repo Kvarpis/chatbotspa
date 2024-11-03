@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     
     try {
       const { variantId, quantity = 1 } = req.body;
-      console.log('Received request for variant:', variantId, 'quantity:', quantity);
+      console.log('Processing add to cart:', { variantId, quantity });
   
       // Base headers for all requests
       const baseHeaders = {
@@ -18,8 +18,14 @@ export default async function handler(req, res) {
         ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
       };
   
-      // Step 1: Add to cart
-      console.log('Adding to cart...');
+      // Get initial cart state
+      const initialCartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
+        headers: baseHeaders
+      });
+      const initialCart = await initialCartResponse.json();
+      console.log('Initial cart state:', initialCart);
+  
+      // Add to cart
       const addToCartResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: baseHeaders,
@@ -34,30 +40,30 @@ export default async function handler(req, res) {
       const addToCartData = await addToCartResponse.json();
       console.log('Add to cart response:', addToCartData);
   
+      // Check for specific error responses from Shopify
       if (!addToCartResponse.ok) {
-        throw new Error(addToCartData.description || 'Failed to add to cart');
+        const errorData = await addToCartResponse.json();
+        throw new Error(errorData.description || 'Failed to add to cart');
       }
   
-      // Step 2: Get cart state
-      console.log('Getting cart state...');
-      const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
+      // Get updated cart state
+      const updatedCartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
         headers: baseHeaders
       });
+      const updatedCart = await updatedCartResponse.json();
+      console.log('Updated cart state:', updatedCart);
   
-      const cartData = await cartResponse.json();
-      console.log('Cart state:', cartData);
+      // Calculate actual changes in cart
+      const newItemCount = updatedCart.item_count;
+      const itemsAdded = newItemCount > initialCart.item_count;
   
-      // Get any new cookies from Shopify
+      // Handle cookies
       const cartCookies = addToCartResponse.headers.get('set-cookie');
       if (cartCookies) {
-        // Parse and consolidate cookies
         const cookieStrings = cartCookies.split(',').map(cookie => {
-          // Extract the main cookie part before any attributes
           const mainPart = cookie.split(';')[0].trim();
           return `${mainPart}; path=/; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`;
         });
-        
-        // Set cookies in response
         res.setHeader('Set-Cookie', cookieStrings);
       }
   
@@ -65,24 +71,15 @@ export default async function handler(req, res) {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   
-      // Prepare response with actual cart quantities
-      const totalQuantity = cartData.items.reduce((sum, item) => sum + item.quantity, 0);
-      
+      // Return response with cart data
       return res.status(200).json({
         success: true,
-        cart: {
-          ...cartData,
-          item_count: totalQuantity,
-          items: cartData.items.map(item => ({
-            ...item,
-            price: parseInt(item.price),
-            line_price: parseInt(item.line_price)
-          }))
-        },
+        itemAdded: true, // Assume success if we got here
+        cart: updatedCart,
         checkoutUrl: `https://${shopifyUrl}/cart`,
-        totalQuantity,
+        totalQuantity: newItemCount,
         sections: {
-          'cart-icon-bubble': `<span class="cart-count-bubble">${totalQuantity}</span>`
+          'cart-icon-bubble': `<span class="cart-count-bubble">${newItemCount}</span>`
         }
       });
   
@@ -90,11 +87,7 @@ export default async function handler(req, res) {
       console.error('Cart error:', error);
       return res.status(500).json({ 
         success: false,
-        error: error.message || 'Failed to add to cart',
-        debug: process.env.NODE_ENV === 'development' ? {
-          message: error.message,
-          stack: error.stack
-        } : undefined
+        error: error.message || 'Failed to add to cart'
       });
     }
   }
