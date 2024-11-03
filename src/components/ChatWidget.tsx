@@ -186,70 +186,31 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
-    // Extract numeric ID from the GraphQL ID
-    const numericId = variant.id.split('/').pop();
-    
-    console.log('Adding product to cart:', {
-      variantId: variant.id,
-      numericId: numericId,
-      quantity: 1
+    const response = await fetch('/api/cart/add', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        variantId: variant.id,
+        quantity: 1,
+      }),
     });
 
-    // Then update live store cart with numeric ID
-    try {
-      const liveStoreResponse = await fetch('/api/cart/add-to-live-store', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          variantId: numericId,
-          quantity: 1
-        })
-      });
-      const liveStoreData = await liveStoreResponse.json();
-      console.log('Live store update response:', liveStoreData);
-
-      // Trigger cart update event for theme
-      if (window.Shopify && window.Shopify.onCartUpdate) {
-        window.Shopify.onCartUpdate(liveStoreData.cart);
-      }
-
-      // Update cart counter and notification
-      const cartIconBubble = document.getElementById('cart-icon-bubble');
-      if (cartIconBubble) {
-        const cartCount = liveStoreData.cart.item_count;
-        
-        // Update or create cart count bubble
-        let countBubble = cartIconBubble.querySelector('.cart-count-bubble');
-        if (!countBubble) {
-          countBubble = document.createElement('div');
-          countBubble.className = 'cart-count-bubble';
-          cartIconBubble.appendChild(countBubble);
-        }
-
-        countBubble.innerHTML = `
-          <span aria-hidden="true">${cartCount}</span>
-          <span class="visually-hidden">${cartCount} vare${cartCount === 1 ? '' : 'r'}</span>
-        `;
-      }
-
-      // Store checkout URL if needed
-      if (liveStoreData.cart.checkout_url) {
-        localStorage.setItem('cartCheckoutUrl', liveStoreData.cart.checkout_url);
-      }
-
-      handleSuccess();
-
-    } catch (liveStoreError) {
-      console.error('Error updating live store:', liveStoreError);
-      throw liveStoreError; // Re-throw to be caught by outer catch
+    // Improved error handling with proper typing
+    if (!response.ok) {
+      const errorData: { error: string; message?: string } = await response.json();
+      console.error('Failed to add to cart:', errorData);
+      throw new Error(`Failed to add to cart: ${errorData.message || errorData.error || 'Unknown error'}`);
     }
 
-  } catch (error) {
+    await response.json();
+    handleSuccess();
+
+  } catch (error: unknown) {
     console.error('Add to cart error:', error);
-    showNotification("Kunne ikke legge til i handlekurven. Prøv igjen senere.", "error");
+    const errorMessage = error instanceof Error ? error.message : "Kunne ikke legge til i handlekurven. Prøv igjen senere.";
+    showNotification(errorMessage, "error");
   } finally {
     setIsAdding(false);
   }
