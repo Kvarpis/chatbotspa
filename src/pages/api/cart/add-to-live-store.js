@@ -1,4 +1,3 @@
-// pages/api/cart/add-to-live-store.js
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' });
@@ -9,8 +8,8 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
-      // Forward any cookies from the request to maintain session
-      const response = await fetch(`https://${shopifyUrl}/cart/add.js`, {
+      // Add to cart using cart.js
+      const addResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -25,13 +24,7 @@ export default async function handler(req, res) {
         })
       });
   
-      // Forward any set-cookie headers from Shopify
-      const cookies = response.headers.get('set-cookie');
-      if (cookies) {
-        res.setHeader('Set-Cookie', cookies);
-      }
-  
-      const data = await response.json();
+      const addData = await addResponse.json();
   
       // Get current cart state
       const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
@@ -41,19 +34,32 @@ export default async function handler(req, res) {
       });
       const cartData = await cartResponse.json();
   
-      res.status(200).json({
+      // Get checkout URL
+      const checkoutUrl = `https://${shopifyUrl}/cart`;
+  
+      // Forward any set-cookie headers from Shopify
+      const cookies = addResponse.headers.get('set-cookie');
+      if (cookies) {
+        res.setHeader('Set-Cookie', cookies);
+      }
+  
+      // Set CORS headers
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  
+      return res.status(200).json({
         success: true,
-        items: data,
+        items: addData,
         cart: cartData,
-        sections: [
-          'cart-icon-bubble',
-          'cart-live-region-text',
-          'cart-notification'
-        ]
+        checkoutUrl: checkoutUrl,
+        totalQuantity: cartData.item_count
       });
   
     } catch (error) {
       console.error('Error adding to live store cart:', error);
-      res.status(500).json({ error: error.message });
+      return res.status(500).json({ 
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   }

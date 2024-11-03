@@ -223,7 +223,7 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
-    const response = await fetch('/api/cart/add', {
+    const response = await fetch('/api/cart/add-to-live-store', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -235,15 +235,22 @@ const handleAddToCart = async () => {
       credentials: 'include', // Important for maintaining session
     });
 
-    const data = await response.json() as CartResponse;
+    const data = await response.json();
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Failed to add to cart');
     }
 
     // Store checkout URL in localStorage
-    if (data.cart?.checkoutUrl) {
-      localStorage.setItem('checkoutUrl', data.cart.checkoutUrl);
+    if (data.checkoutUrl) {
+      localStorage.setItem('checkoutUrl', data.checkoutUrl);
+      console.log('Checkout URL:', data.checkoutUrl);
+    }
+
+    // Update cart count if available
+    if (data.cart?.item_count) {
+      // Update any cart counters in your UI
+      console.log('Cart count:', data.cart.item_count);
     }
 
     handleSuccess();
