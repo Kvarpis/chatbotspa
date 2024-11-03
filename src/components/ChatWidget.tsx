@@ -223,11 +223,10 @@ const handleAddToCart = async () => {
 
   setIsAdding(true);
   try {
-    // Extract numeric ID from GID
     const numericId = variant.id.split('/').pop();
-    console.log('Sending variant ID:', {
-      original: variant.id,
-      numeric: numericId
+    console.log('Adding to cart:', {
+      variantId: numericId,
+      currentCartToken: document.cookie.match(/cart=([^;]+)/)?.[1]
     });
     
     const response = await fetch('/api/cart/add-to-live-store', {
@@ -236,10 +235,10 @@ const handleAddToCart = async () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        variantId: numericId, // Send only the numeric ID
+        variantId: numericId,
         quantity: 1,
       }),
-      credentials: 'include',
+      credentials: 'include'
     });
 
     const data = await response.json();
@@ -247,12 +246,6 @@ const handleAddToCart = async () => {
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Failed to add to cart');
-    }
-
-    // Store cart data
-    if (data.cart) {
-      localStorage.setItem('cartData', JSON.stringify(data.cart));
-      localStorage.setItem('checkoutUrl', data.checkoutUrl);
     }
 
     // Update cart UI
@@ -265,19 +258,20 @@ const handleAddToCart = async () => {
       });
     }
 
-    handleSuccess();
-
-    // Refresh cart if we're on the cart page
-    if (window.location.pathname === '/cart') {
-      window.location.reload();
+    // Refresh cart drawer if it exists
+    const cartDrawer = document.querySelector('cart-drawer');
+    if (cartDrawer) {
+      cartDrawer.classList.add('active');
     }
 
-  } catch (error: unknown) {
+    handleSuccess();
+
+  } catch (error) {
     console.error('Add to cart error:', error);
-    const errorMessage = error instanceof Error 
-      ? error.message 
-      : "Kunne ikke legge til i handlekurven. Prøv igjen senere.";
-    showNotification(errorMessage, "error");
+    showNotification(
+      error instanceof Error ? error.message : "Could not add to cart",
+      "error"
+    );
   } finally {
     setIsAdding(false);
   }

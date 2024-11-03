@@ -8,28 +8,22 @@ export default async function handler(req, res) {
     try {
       const { variantId, quantity } = req.body;
       
-      // Log incoming cookies
-      console.log('Incoming cookies:', req.headers.cookie);
+      // Parse existing cookies
+      const existingCartToken = req.headers.cookie?.match(/cart=([^;]+)/)?.[1];
+      console.log('Existing cart token:', existingCartToken);
   
-      // First, get the customer session if not already present
-      const sessionResponse = await fetch(`https://${shopifyUrl}/cart`, {
-        headers: {
-          'Accept': 'application/json',
-          'Cookie': req.headers.cookie || ''
-        }
-      });
+      // Headers to be used across all requests
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      };
   
-      // Get all cookies from the session response
-      const sessionCookies = sessionResponse.headers.get('set-cookie');
-      console.log('Session cookies:', sessionCookies);
+      if (existingCartToken) {
+        headers['Cookie'] = `cart=${existingCartToken}`;
+      }
   
-      // Combine all relevant cookies
-      const allCookies = [
-        req.headers.cookie,
-        sessionCookies
-      ].filter(Boolean).join('; ');
-  
-      // Add to cart using cart/add.js with session cookies
+      // Add to cart using cart/add.js
       const formData = {
         items: [{
           id: parseInt(variantId, 10),
@@ -39,12 +33,7 @@ export default async function handler(req, res) {
   
       const addResponse = await fetch(`https://${shopifyUrl}/cart/add.js`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Cookie': allCookies
-        },
-        credentials: 'include',
+        headers,
         body: JSON.stringify(formData)
       });
   
@@ -53,53 +42,45 @@ export default async function handler(req, res) {
         throw new Error(errorData.description || 'Failed to add to cart');
       }
   
-      const addData = await addResponse.json();
-      console.log('Add to cart response:', addData);
+      // Get cart token from response if present
+      const cartCookie = addResponse.headers.get('set-cookie')?.match(/cart=([^;]+)/)?.[1];
+      if (cartCookie) {
+        headers['Cookie'] = `cart=${cartCookie}`;
+      }
   
-      // Get updated cart state with session
+      const addData = await addResponse.json();
+      console.log('Add response:', addData);
+  
+      // Get updated cart state
       const cartResponse = await fetch(`https://${shopifyUrl}/cart.js`, {
-        headers: {
-          'Accept': 'application/json',
-          'Cookie': allCookies
-        }
+        headers
       });
   
       const cartData = await cartResponse.json();
       console.log('Cart state:', cartData);
   
-      // Get sections HTML with session
-      const sectionsResponse = await fetch(
-        `https://${shopifyUrl}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text`,
-        {
-          headers: {
-            'Accept': 'application/json',
-            'Cookie': allCookies
-          }
-        }
-      );
+      // Set cart cookie in response if we have one
+      if (cartCookie) {
+        res.setHeader('Set-Cookie', [
+          `cart=${cartCookie}; path=/; secure; sameSite=Lax`,
+          `cart_ts=${Date.now()}; path=/; secure; sameSite=Lax`
+        ]);
+      }
+  
+      // Get cart sections
+      const sectionsUrl = new URL(`https://${shopifyUrl}/cart`);
+      sectionsUrl.searchParams.set('sections', 'cart-items,cart-icon-bubble,cart-live-region-text');
+      sectionsUrl.searchParams.set('t', Date.now().toString());
+  
+      const sectionsResponse = await fetch(sectionsUrl.toString(), {
+        headers
+      });
   
       const sectionsData = await sectionsResponse.json();
-  
-      // Collect all cookies from responses
-      const cookies = [
-        sessionCookies,
-        addResponse.headers.get('set-cookie'),
-        cartResponse.headers.get('set-cookie'),
-        sectionsResponse.headers.get('set-cookie')
-      ].filter(Boolean);
-  
-      // Set all cookies in response
-      if (cookies.length) {
-        cookies.forEach(cookie => {
-          res.setHeader('Set-Cookie', cookie);
-        });
-      }
   
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
       return res.status(200).json({
         success: true,
@@ -109,8 +90,8 @@ export default async function handler(req, res) {
         sections: sectionsData,
         totalQuantity: cartData.item_count || 0,
         debug: {
-          cookies: allCookies,
-          sessionCookies: sessionCookies
+          cartToken: cartCookie || existingCartToken,
+          requestHeaders: headers
         }
       });
   
