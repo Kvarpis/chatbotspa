@@ -18,6 +18,16 @@ interface Config {
   };
 }
 
+interface CartResponse {
+  error?: string;
+  success?: boolean;
+  cart?: {
+    id: string;
+    checkoutUrl: string;
+    totalQuantity: number;
+  };
+}
+
 interface Message {
   text: string | React.ReactNode;
   isBot: boolean;
@@ -56,7 +66,18 @@ interface Product {
 declare global {
   interface Window {
     Shopify?: {
-      onCartUpdate?: (cart: any) => void;
+      onCartUpdate?: (cart: {
+        item_count: number;
+        items: Array<{
+          id: number;
+          quantity: number;
+          title: string;
+          price: number;
+          variant_id: number;
+        }>;
+        total_price: number;
+        currency: string;
+      }) => void;
     };
   }
 }
@@ -197,19 +218,18 @@ const handleAddToCart = async () => {
       }),
     });
 
-    // Improved error handling with proper typing
+    const data = await response.json() as CartResponse;
+
     if (!response.ok) {
-      const errorData: { error: string; message?: string } = await response.json();
-      console.error('Failed to add to cart:', errorData);
-      throw new Error(`Failed to add to cart: ${errorData.message || errorData.error || 'Unknown error'}`);
+      throw new Error(data.error || 'Failed to add to cart');
     }
 
-    await response.json();
     handleSuccess();
-
   } catch (error: unknown) {
     console.error('Add to cart error:', error);
-    const errorMessage = error instanceof Error ? error.message : "Kunne ikke legge til i handlekurven. Prøv igjen senere.";
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : "Kunne ikke legge til i handlekurven. Prøv igjen senere.";
     showNotification(errorMessage, "error");
   } finally {
     setIsAdding(false);
