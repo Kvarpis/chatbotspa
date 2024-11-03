@@ -218,54 +218,62 @@ const handleSuccess = async () => {
   setTimeout(() => setIsAdded(false), 2000);
 };
 
+// Update the handleAddToCart function in your ProductCard component
+
 const handleAddToCart = async () => {
   if (isAdding || !isAvailable) return;
 
   setIsAdding(true);
   try {
-    const numericId = variant.id.split('/').pop();
-    console.log('Adding to cart:', {
-      variantId: numericId,
-      currentCartToken: document.cookie.match(/cart=([^;]+)/)?.[1]
-    });
-    
+    // Extract numeric ID from the variant ID string
+    const variantId = variant.id.includes('/')
+      ? variant.id.split('/').pop()
+      : variant.id;
+
     const response = await fetch('/api/cart/add-to-live-store', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        variantId: numericId,
+        variantId,
         quantity: 1,
       }),
-      credentials: 'include'
+      credentials: 'include' // Important for cookie handling
     });
 
     const data = await response.json();
-    console.log('Cart response:', data);
 
     if (!response.ok || !data.success) {
       throw new Error(data.error || 'Failed to add to cart');
     }
 
-    // Update cart UI
-    if (data.sections) {
-      Object.entries(data.sections).forEach(([name, html]) => {
-        const element = document.getElementById(`shopify-section-${name}`);
+    // Update cart sections in the DOM
+    if (data.cart?.sections) {
+      Object.entries(data.cart.sections).forEach(([id, html]) => {
+        const element = document.getElementById(`shopify-section-${id}`);
         if (element) {
           element.innerHTML = html as string;
         }
       });
     }
 
-    // Refresh cart drawer if it exists
+    // Trigger cart drawer update if it exists
     const cartDrawer = document.querySelector('cart-drawer');
     if (cartDrawer) {
-      cartDrawer.classList.add('active');
+      const event = new CustomEvent('cart:refresh', {
+        detail: { cart: data.cart }
+      });
+      window.dispatchEvent(event);
+    }
+
+    // Update Shopify's cart object if it exists
+    if (window.Shopify?.onCartUpdate) {
+      window.Shopify.onCartUpdate(data.cart);
     }
 
     handleSuccess();
-
+    
   } catch (error) {
     console.error('Add to cart error:', error);
     showNotification(
