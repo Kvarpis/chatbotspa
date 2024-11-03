@@ -202,7 +202,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      const numericId = variant.id.split('/').pop();
+      const numericId = variant.id; // Use the full ID for GraphQL API
       console.log('Starting add to cart process for variant:', numericId);
       
       const response = await fetch('/api/cart/add-to-live-store', {
@@ -217,47 +217,30 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         credentials: 'include'
       });
   
-      console.log('Received response:', response.status, response.statusText);
-      
       const data = await response.json();
       console.log('Response data:', data);
   
-      if (!response.ok) {
-        throw new Error(data.error || `Server responded with status ${response.status}`);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to add to cart');
       }
   
-      // Remove the inventory check since products don't track inventory
       // Show success notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
   
-      // Update cart UI elements safely
-      try {
-        // Update cart count
-        const cartCountElements = document.querySelectorAll('.cart-count-bubble');
-        cartCountElements.forEach(el => {
-          if (el instanceof HTMLElement) {
-            el.textContent = String(data.totalQuantity || '0');
-            el.style.display = (data.totalQuantity > 0) ? 'flex' : 'none';
-          }
-        });
-  
-        // Try to open cart drawer
-        const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
-        if (cartDrawer && typeof cartDrawer.open === 'function') {
-          console.log('Opening cart drawer...');
-          cartDrawer.open();
-        } else {
-          console.log('No cart drawer found, attempting to redirect to cart page');
-          window.location.href = data.checkoutUrl;
+      // Update cart count if element exists
+      const cartCountElements = document.querySelectorAll('.cart-count-bubble');
+      cartCountElements.forEach(el => {
+        if (el instanceof HTMLElement) {
+          el.textContent = String(data.totalQuantity || '0');
+          el.style.display = (data.totalQuantity > 0) ? 'flex' : 'none';
         }
+      });
   
-      } catch (uiError) {
-        console.error('Error updating UI elements:', uiError);
-        // Fallback to cart page redirect
-        window.location.href = data.checkoutUrl;
+      // Handle redirect
+      if (data.redirectToCheckout) {
+        window.location.href = data.redirectToCheckout;
       }
   
-      // Set success state
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
   
