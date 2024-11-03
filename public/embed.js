@@ -26,8 +26,8 @@
                 iframe.style.height = '650px';
             } else if (event.data === 'minimize') {
                 // Minimize iframe when chat is closed
-                iframe.style.width = '70px';
-                iframe.style.height = '70px';
+                iframe.style.width = '75px';
+                iframe.style.height = '75px';
             }
         }
     });

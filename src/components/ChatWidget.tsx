@@ -20,11 +20,27 @@ interface Config {
 
 interface CartResponse {
   error?: string;
-  success?: boolean;
+  success: boolean;
   cart?: {
     id: string;
     checkoutUrl: string;
     totalQuantity: number;
+    lines: {
+      edges: Array<{
+        node: {
+          id: string;
+          quantity: number;
+          merchandise: {
+            id: string;
+            title: string;
+            price: {
+              amount: string;
+              currencyCode: string;
+            };
+          };
+        };
+      }>;
+    };
   };
 }
 
@@ -216,12 +232,18 @@ const handleAddToCart = async () => {
         variantId: variant.id,
         quantity: 1,
       }),
+      credentials: 'include', // Important for maintaining session
     });
 
     const data = await response.json() as CartResponse;
 
-    if (!response.ok) {
+    if (!response.ok || !data.success) {
       throw new Error(data.error || 'Failed to add to cart');
+    }
+
+    // Store checkout URL in localStorage
+    if (data.cart?.checkoutUrl) {
+      localStorage.setItem('checkoutUrl', data.cart.checkoutUrl);
     }
 
     handleSuccess();
