@@ -4,7 +4,11 @@ import SeacretspaChatWidget from '@/components/ChatWidget';
 export default function Home() {
   return (
     <main>
-      <SeacretspaChatWidget />
+      <SeacretspaChatWidget 
+        shopifySession={{}}
+        cookies={{}}
+        onSessionUpdate={() => {}}
+      />
     </main>
   );
 }

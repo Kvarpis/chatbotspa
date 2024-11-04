@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Send, ExternalLink, ShoppingCart, Calendar } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ShopifySession } from '@/types/shopify';
 
 // Type definitions
 interface Config {
@@ -16,6 +17,21 @@ interface Config {
     text: string;
     lightText: string;
   };
+}
+
+// Type definitions
+interface SessionUpdateData {
+  cartToken?: string;
+  totalQuantity?: number;
+  lastUpdated?: string;
+  [key: string]: unknown;
+}
+
+// Single definition of the props interface with proper typing
+interface SeacretspaChatWidgetProps {
+  shopifySession: ShopifySession;
+  cookies: Record<string, string>;
+  onSessionUpdate: (sessionData: SessionUpdateData) => void;
 }
 
 interface CartResponse {
@@ -83,6 +99,7 @@ interface Product {
 interface DawnCartDrawer extends HTMLElement {
   open(): void;
 }
+
 
 // Constants
 const CONFIG: Config = {
@@ -187,30 +204,37 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      // Get existing cart cookie from document
-      const cartCookie = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('cart='));
-  
+      console.log('Adding to cart:', variant.id);
+      
       const response = await fetch('/api/cart/add-to-live-store', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(cartCookie && { Cookie: cartCookie })
+          'Accept': 'application/json'
         },
+        credentials: 'include',
         body: JSON.stringify({
           variantId: variant.id,
           quantity: 1,
-        }),
-        credentials: 'include'
+        })
       });
   
-      const data = await response.json();
-      
-      if (response.ok) {
+      console.log('Response status:', response.status);
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+  
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        // Removed unused error parameter
+        console.error('Failed to parse response as JSON:', responseText);
+        throw new Error('Invalid response from server');
+      }
+  
+      if (response.ok && data.success) {
         showNotification(`${product.title} er lagt til i handlekurven`, 'success');
         
-        // Refresh the cart drawer if it exists
         const cartDrawerElement = document.querySelector('cart-drawer');
         if (cartDrawerElement) {
           (cartDrawerElement as DawnCartDrawer).open();
@@ -219,12 +243,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         setIsAdded(true);
         setTimeout(() => setIsAdded(false), 2000);
       } else {
-        throw new Error(data.description || 'Failed to add to cart');
+        throw new Error(data.error || 'Failed to add to cart');
       }
-    } catch (error) {
-      console.error('Add to cart error:', error);
+    } catch (err) { // Changed from error to err
+      console.error('Add to cart error:', err);
       showNotification(
-        error instanceof Error ? error.message : "Could not add to cart",
+        err instanceof Error ? err.message : "Could not add to cart",
         "error"
       );
     } finally {
@@ -367,7 +391,6 @@ const QuickActions: React.FC<{
   </div>
 );
 
-// Chat message component
 const ChatMessage: React.FC<{ message: string | React.ReactNode; isBot: boolean }> = ({ message, isBot }) => (
   <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
     <div 
@@ -386,8 +409,12 @@ const ChatMessage: React.FC<{ message: string | React.ReactNode; isBot: boolean 
   </div>
 );
 
-// Main chat widget component
-const SeacretspaChatWidget: React.FC = () => {
+// Chat message component
+const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
+  shopifySession,
+  cookies,
+  onSessionUpdate
+}) => {
   const [messages, setMessages] = useState<Message[]>([
     { text: TRANSLATIONS.welcome, isBot: true },
     { text: TRANSLATIONS.askHelp, isBot: true }
@@ -396,6 +423,16 @@ const SeacretspaChatWidget: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [chatState, setChatState] = useState<ChatState>(CHAT_STATES.MINIMIZED);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [cartData, setCartData] = useState<CartResponse['cart']>();
+
+  // Memoized updateSession function
+  const updateSession = useCallback((cartData?: SessionUpdateData) => {
+    const updatedData = {
+      ...cartData,
+      lastUpdated: new Date().toISOString()
+    };
+    onSessionUpdate(updatedData);
+  }, [onSessionUpdate]);
 
   // Initialize chat session ID on mount
   useEffect(() => {
@@ -409,22 +446,93 @@ const SeacretspaChatWidget: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add the new useEffect right here, after the above ones
-useEffect(() => {
   // Post message to parent when chat state changes
-  if (window.parent !== window) {
-    window.parent.postMessage(
-      chatState === CHAT_STATES.EXPANDED ? 'expand' : 'minimize',
-      '*'
-    );
-  }
-}, [chatState]);
+  useEffect(() => {
+    if (window.parent !== window) {
+      window.parent.postMessage(
+        chatState === CHAT_STATES.EXPANDED ? 'expand' : 'minimize',
+        '*'
+      );
+    }
+  }, [chatState]);
+
+  // Monitor Shopify session
+  useEffect(() => {
+    if (shopifySession.shop) {
+      console.log('Shopify session:', shopifySession);
+    }
+  }, [shopifySession]);
+
+  // Monitor cookies
+  useEffect(() => {
+    if (cookies["user_session"]) {
+      console.log("User session is active:", cookies["user_session"]);
+    }
+  }, [cookies]);
+
+  // Cart data tracking
+  useEffect(() => {
+    if (cartData) {
+      console.log('Cart updated:', cartData.totalQuantity, 'items');
+      // Add any cart-specific UI updates here
+    }
+  }, [cartData]);
 
   const addMessage = (text: string | React.ReactNode, isBot: boolean) => {
     setMessages(prev => [...prev, { text, isBot }]);
   };
 
-  // Improved booking flow
+  // Fetch cart functionality
+  const fetchCart = useCallback(async (): Promise<CartResponse> => {
+    try {
+      const response = await fetch('/api/cart/get-cart', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        credentials: 'include'
+      });
+  
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+  
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching cart:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch cart'
+      };
+    }
+  }, []);
+
+  // Load cart with proper dependencies
+  const loadCart = useCallback(async () => {
+    try {
+      const response = await fetchCart();
+      
+      if (response.success && response.cart) {
+        setCartData(response.cart);
+        updateSession({
+          cartToken: response.cart.id,
+          totalQuantity: response.cart.totalQuantity
+        });
+      } else if (response.error) {
+        console.error('Cart fetch error:', response.error);
+      }
+    } catch (error) {
+      console.error('Failed to load cart:', error);
+    }
+  }, [fetchCart, updateSession]);
+
+  // Load cart on mount and when session changes
+  useEffect(() => {
+    loadCart();
+  }, [loadCart, shopifySession.cartToken]);
+
   const handleBooking = () => {
     addMessage(TRANSLATIONS.bookingQuestion, true);
     setTimeout(() => {
@@ -540,10 +648,6 @@ useEffect(() => {
       setIsLoading(false);
     }
   };
-
-  if (chatState === CHAT_STATES.HIDDEN) {
-    return null;
-  }
 
   return (
     // Wrapper with specific z-index and positioning for Shopify integration

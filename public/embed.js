@@ -11,6 +11,16 @@
         }
     };
 
+    // Helper function to get cookies
+    function getCookies() {
+        const cookies = {};
+        document.cookie.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            cookies[name] = value;
+        });
+        return cookies;
+    }
+
     // Create and configure iframe
     const iframe = document.createElement('iframe');
     
@@ -28,13 +38,31 @@
         opacity: 0;
     `;
     
-    // Set the correct source URL (without /embed)
-    iframe.src = config.baseUrl;
+    // Set the source URL with session info
+    const cookies = getCookies();
+    const params = new URLSearchParams({
+        cart: cookies.cart || '',
+        shop_session: cookies._shopify_s || '',
+        shop_domain: window.Shopify?.shop || ''
+    });
+    
+    iframe.src = `${config.baseUrl}?${params.toString()}`;
 
     // Handle iframe load event
     iframe.onload = function() {
         iframe.style.opacity = '1';
         console.log('Chat widget loaded successfully');
+        
+        // Send initial session data
+        iframe.contentWindow.postMessage({
+            type: 'INIT_SESSION',
+            cookies: getCookies(),
+            shopifyData: {
+                shop: window.Shopify?.shop,
+                currency: window.Shopify?.currency?.active,
+                cartToken: cookies.cart
+            }
+        }, config.baseUrl);
     };
 
     // Handle iframe error
@@ -51,17 +79,37 @@
             console.log('Received message from chat:', event.data);
             
             if (event.data === 'expand') {
-                // Expand iframe when chat is opened
                 iframe.style.width = config.expandedWidth;
                 iframe.style.height = config.expandedHeight;
             } else if (event.data === 'minimize') {
-                // Minimize iframe when chat is closed
                 iframe.style.width = config.buttonSize;
                 iframe.style.height = config.buttonSize;
+            } else if (event.data?.type === 'REQUEST_SESSION') {
+                // Send current session data when requested
+                iframe.contentWindow.postMessage({
+                    type: 'SESSION_UPDATE',
+                    cookies: getCookies(),
+                    shopifyData: {
+                        shop: window.Shopify?.shop,
+                        currency: window.Shopify?.currency?.active,
+                        cartToken: cookies.cart
+                    }
+                }, config.baseUrl);
             }
         }
     });
 
-    // Log initialization
-    console.log('Chat widget initialized');
+    // Monitor cart cookie changes
+    setInterval(() => {
+        const currentCookies = getCookies();
+        if (currentCookies.cart !== cookies.cart) {
+            cookies.cart = currentCookies.cart;
+            iframe.contentWindow.postMessage({
+                type: 'CART_UPDATE',
+                cartToken: currentCookies.cart
+            }, config.baseUrl);
+        }
+    }, 1000);
+
+    console.log('Chat widget initialized with session monitoring');
 })();
