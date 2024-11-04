@@ -201,85 +201,64 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const handleAddToCart = async () => {
     if (isAdding || !isAvailable) return;
-  
     setIsAdding(true);
+    
     try {
-      // Check if variant.id exists, and extract the numeric ID if it's in GraphQL format
-      // Check if variant.id exists, and extract the numeric ID if it's in GraphQL format
-const numericVariantId = variant?.id?.startsWith('gid://shopify/ProductVariant/')
-  ? variant.id.split('/').pop()
-  : variant.id;
+      const numericId = variant?.id?.includes('/') 
+        ? variant.id.split('/').pop() 
+        : variant.id;
 
-  
-      // If numericVariantId is still undefined, handle it by providing a fallback or error message
-      if (!numericVariantId) {
-        console.error('Invalid variant ID');
-        showNotification("Could not add to cart: Invalid variant ID", "error");
-        return;
+      if (!numericId) {
+        throw new Error('Invalid variant ID');
       }
-  
-      console.log('Adding to cart (numeric ID):', numericVariantId);
-  
-      const response = await fetch('/api/cart/add-to-live-store', {
+
+      // This is the working cart add implementation
+      const addToCartResponse = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'include',
         body: JSON.stringify({
-          variantId: numericVariantId, // Send only the numeric part
-          quantity: 1,
+          items: [{ id: numericId, quantity: 1 }]
         })
       });
-  
-      console.log('Response status:', response.status);
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
-  
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        console.error('Failed to parse response as JSON:', responseText);
-        throw new Error('Invalid response from server');
-      }
-  
-      if (response.ok && data.success) {
-        showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-  
-        // Update cart sections
-        if (data.sections) {
-          Object.entries(data.sections).forEach(([sectionId, html]) => {
-            const element = document.getElementById(sectionId);
-            if (element && typeof html === 'string') {
-              element.innerHTML = html;
-            }
-          });
+
+      const addToCartData = await addToCartResponse.json();
+      
+      // Get cart data to trigger UI updates
+      const cartResponse = await fetch('/cart.js', {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
         }
-  
-        // Trigger cart update event for Dawn theme
-        const updateEvent = new CustomEvent('cart:refresh', {
-          bubbles: true,
-          detail: { 
-            source: 'cart-items',
-            cartData: data.cart,
-            sections: data.sections
-          }
-        });
-        document.dispatchEvent(updateEvent);
-  
-        // Open cart drawer if it exists
-        const cartDrawerElement = document.querySelector('cart-drawer');
-        if (cartDrawerElement && 'open' in cartDrawerElement) {
-          (cartDrawerElement as DawnCartDrawer).open();
-        }
-  
-        setIsAdded(true);
-        setTimeout(() => setIsAdded(false), 2000);
-      } else {
-        throw new Error(data.error || 'Failed to add to cart');
+      });
+
+      const cartData = await cartResponse.json();
+
+      // Show notification
+      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
+
+      // Trigger cart update event for Dawn theme
+      const cartUpdateEvent = new CustomEvent('cart:updated', {
+        detail: { cart: cartData }
+      });
+      document.documentElement.dispatchEvent(cartUpdateEvent);
+
+      // Show notification if it exists
+      const cartNotification = document.querySelector('cart-notification');
+      if (cartNotification) {
+        (cartNotification as HTMLElement).classList.remove('animate', 'active');
+        // Trigger reflow
+        void (cartNotification as HTMLElement).offsetWidth;
+        (cartNotification as HTMLElement).classList.add('animate', 'active');
       }
+
+      setIsAdded(true);
+      setTimeout(() => setIsAdded(false), 2000);
+
     } catch (err) {
       console.error('Add to cart error:', err);
       showNotification(

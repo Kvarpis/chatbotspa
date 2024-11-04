@@ -1,5 +1,4 @@
 // src/pages/api/cart/add-to-live-store.js
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -32,18 +31,8 @@ export default async function handler(req, res) {
     }
 
     const finalId = parseInt(numericId, 10);
-    console.log('Final numeric ID for cart:', finalId);
 
-    // Log payload
-    const payload = {
-      items: [{
-        id: finalId,
-        quantity: parseInt(quantity, 10)
-      }]
-    };
-    console.log("Payload for add.js:", JSON.stringify(payload));
-
-    // First add item to cart without sections
+    // Add to cart
     const addToCartResponse = await fetch(`https://${shopifyDomain}/cart/add.js`, {
       method: 'POST',
       headers: {
@@ -52,23 +41,13 @@ export default async function handler(req, res) {
         'Cookie': req.headers.cookie || '',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify(payload)
+      credentials: 'include',
+      body: JSON.stringify({
+        items: [{ id: finalId, quantity: parseInt(quantity, 10) }]
+      })
     });
 
-    const addToCartText = await addToCartResponse.text();
-    console.log('Add to cart response:', addToCartText);
-
-    let addToCartData;
-    try {
-      addToCartData = JSON.parse(addToCartText);
-    } catch {
-      console.error('Failed to parse add to cart response:', addToCartText);
-      throw new Error('Invalid response from Shopify');
-    }
-
-    if (!addToCartResponse.ok) {
-      throw new Error(addToCartData.description || 'Failed to add to cart');
-    }
+    const addToCartData = await addToCartResponse.json();
 
     // Forward cookies from Shopify
     const shopifyCookies = addToCartResponse.headers.get('set-cookie');
@@ -76,26 +55,40 @@ export default async function handler(req, res) {
       res.setHeader('Set-Cookie', shopifyCookies);
     }
 
-    // Now get cart data
+    // Get updated cart data
     const cartResponse = await fetch(`https://${shopifyDomain}/cart.js`, {
       headers: {
         'Accept': 'application/json',
-        'Cookie': req.headers.cookie || '',
+        'Cookie': shopifyCookies || req.headers.cookie || '',
         'X-Requested-With': 'XMLHttpRequest'
       }
     });
 
-    if (!cartResponse.ok) {
-      throw new Error('Failed to fetch cart');
-    }
-
     const cartData = await cartResponse.json();
-    console.log('Updated cart data:', cartData);
 
-    // Return success response with updated cart data
+    // Get sections data
+    const sectionsResponse = await fetch(`https://${shopifyDomain}/cart?view=ajax`, {
+      headers: {
+        'Accept': '*/*',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': shopifyCookies || req.headers.cookie || ''
+      }
+    });
+
+    const sectionsHtml = await sectionsResponse.text();
+
+    // Return all necessary data
     return res.status(200).json({
       success: true,
       cart: cartData,
+      addedItems: addToCartData.items,
+      sections: {
+        'cart-items': sectionsHtml,
+        'cart-icon-bubble': sectionsHtml,
+        'cart-live-region-text': sectionsHtml,
+        'cart-drawer': sectionsHtml
+      },
+      checkoutUrl: `https://${shopifyDomain}/cart`,
       totalQuantity: cartData.item_count
     });
 
