@@ -195,11 +195,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
-    console.log("Raw variant ID received:", variantId); // Debug log
+    console.log("Raw variant ID received:", variantId);
     
     // Extract numeric ID from the `gid://` format
     const numericVariantId = variantId.split('/').pop();
-    console.log("Extracted numeric ID:", numericVariantId); // Debug log
+    console.log("Extracted numeric ID:", numericVariantId);
     
     if (!numericVariantId) {
       console.error("Invalid variant ID format");
@@ -208,71 +208,37 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      const requestBody = {
-        items: [{ id: parseInt(numericVariantId, 10), quantity }]
-      };
-      console.log("Sending request with body:", requestBody); // Debug log
+      const formData = new FormData();
+      formData.append('form_type', 'product');
+      formData.append('utf8', '✓');
+      formData.append('id', numericVariantId);
+      formData.append('quantity', quantity.toString());
+      formData.append('sections', 'cart-drawer');
   
-      // First add to cart
-      const response = await fetch('/cart/add.js', {
+      // Use a fallback URL if Shopify routes are not defined
+      const cartUrl = (window as any).Shopify?.routes?.root 
+        ? `${(window as any).Shopify.routes.root}cart/add.js`
+        : '/cart/add.js';
+  
+      const response = await fetch(cartUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         },
-        credentials: 'include',
-        body: JSON.stringify(requestBody)
+        credentials: 'same-origin',
+        body: formData
       });
   
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Cart response not OK:", response.status, errorText);
-        throw new Error(`Cart request failed: ${errorText}`);
+        throw new Error('Failed to add to cart');
       }
   
-      const addData = await response.json();
-      console.log('Add to cart response:', addData);
-  
-      // Get current cart data
-      const cartResponse = await fetch('/cart.js', {
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
-  
-      if (!cartResponse.ok) {
-        const errorText = await cartResponse.text();
-        console.error("Cart fetch not OK:", cartResponse.status, errorText);
-        throw new Error(`Cart fetch failed: ${errorText}`);
-      }
-  
-      const cartData = await cartResponse.json();
-      console.log('Cart data:', cartData);
-  
-      // Get the cart notification element
-      const cartNotification = document.querySelector('cart-notification');
-      
-      if (cartNotification) {
-        // Update cart UI using Dawn theme's built-in methods
-        const event = new CustomEvent('cart:updated', {
-          detail: { cart: cartData }
-        });
-        document.documentElement.dispatchEvent(event);
-        
-        // Show notification if it exists
-        cartNotification.classList.remove('animate', 'active');
-        // Trigger reflow
-        void (cartNotification as HTMLElement).offsetWidth;
-        cartNotification.classList.add('animate', 'active');
-      }
-  
-      // Try to update cart count if it exists
-      const cartCount = document.querySelector('.cart-count-bubble span');
-      if (cartCount) {
-        cartCount.textContent = cartData.item_count.toString();
-      }
+      // Trigger cart drawer open
+      document.documentElement.dispatchEvent(
+        new CustomEvent('cart:refresh', {
+          bubbles: true
+        })
+      );
   
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
