@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CustomCartDrawer } from '../types/shopify';
+import { CustomCartDrawer, ShopifyGlobal, CartAPIResponse } from '../types/shopify';
 
 // Type definitions
 interface Config {
@@ -80,24 +80,6 @@ interface Product {
   available?: boolean;
 }
 
-declare global {
-  interface Window {
-    Shopify?: {
-      onCartUpdate?: (cart: {
-        item_count: number;
-        items: Array<{
-          id: number;
-          quantity: number;
-          title: string;
-          price: number;
-          variant_id: number;
-        }>;
-        total_price: number;
-        currency: string;
-      }) => void;
-    };
-  }
-}
 
 // Constants
 const CONFIG: Config = {
@@ -214,11 +196,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           variantId: numericId,
           quantity: 1,
         }),
-        credentials: 'include'  // Important for cookie handling
+        credentials: 'include'
       });
   
       console.log('Cart API response status:', response.status);
-      const data = await response.json();
+      const data = await response.json() as CartAPIResponse;
       console.log('Cart API response:', data);
   
       if (!response.ok || !data.success) {
@@ -249,10 +231,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
       // Try to trigger cart drawer if it exists
       try {
-        // Try built-in cart drawer
-        const cartDrawer = document.querySelector('cart-drawer');
-        if (cartDrawer && 'open' in cartDrawer) {
-          (cartDrawer as any).open();
+        const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
+        if (cartDrawer?.open) {
+          cartDrawer.open();
         } else {
           // Fallback: redirect to cart page
           window.location.href = data.checkoutUrl;
