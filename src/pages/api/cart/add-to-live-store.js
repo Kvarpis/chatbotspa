@@ -23,7 +23,6 @@ export default async function handler(req, res) {
       numericId = variantId;
     }
 
-    // Debug logging
     console.log('Original variant ID:', variantId);
     console.log('Extracted numeric ID:', numericId);
 
@@ -35,17 +34,7 @@ export default async function handler(req, res) {
     const finalId = parseInt(numericId, 10);
     console.log('Final numeric ID for cart:', finalId);
 
-    // Prepare add to cart request
-    const cartBody = {
-      items: [{
-        id: finalId,
-        quantity: parseInt(quantity, 10)
-      }]
-    };
-
-    console.log('Add to cart request body:', JSON.stringify(cartBody, null, 2));
-
-    // Add to cart
+    // First add item to cart without sections
     const addToCartResponse = await fetch(`https://${shopifyDomain}/cart/add.js`, {
       method: 'POST',
       headers: {
@@ -54,11 +43,16 @@ export default async function handler(req, res) {
         'Cookie': req.headers.cookie || '',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify(cartBody)
+      body: JSON.stringify({
+        items: [{
+          id: finalId,
+          quantity: parseInt(quantity, 10)
+        }]
+      })
     });
 
     const addToCartText = await addToCartResponse.text();
-    console.log('Raw add to cart response:', addToCartText);
+    console.log('Add to cart response:', addToCartText);
 
     let addToCartData;
     try {
@@ -78,19 +72,7 @@ export default async function handler(req, res) {
       res.setHeader('Set-Cookie', shopifyCookies);
     }
 
-    // Get sections data
-    const sectionsResponse = await fetch(`https://${shopifyDomain}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer`, {
-      headers: {
-        'Accept': '*/*',
-        'Cookie': req.headers.cookie || '',
-        'X-Requested-With': 'XMLHttpRequest'
-      }
-    });
-
-    const sectionsData = await sectionsResponse.text();
-    console.log('Sections response:', sectionsData);
-
-    // Get updated cart
+    // Now get cart data
     const cartResponse = await fetch(`https://${shopifyDomain}/cart.js`, {
       headers: {
         'Accept': 'application/json',
@@ -104,17 +86,27 @@ export default async function handler(req, res) {
     }
 
     const cartData = await cartResponse.json();
-    console.log('Cart data:', cartData);
 
-    // Return final response
+    // Get section data
+    const sectionsResponse = await fetch(`https://${shopifyDomain}/cart?view=ajax`, {
+      headers: {
+        'Accept': '*/*',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': req.headers.cookie || ''
+      }
+    });
+
+    const sectionsHtml = await sectionsResponse.text();
+
+    // Return success response with all data
     return res.status(200).json({
       success: true,
       cart: cartData,
       sections: {
-        'cart-items': sectionsData,
-        'cart-icon-bubble': sectionsData,
-        'cart-live-region-text': sectionsData,
-        'cart-drawer': sectionsData
+        'cart-items': sectionsHtml,
+        'cart-icon-bubble': sectionsHtml,
+        'cart-live-region-text': sectionsHtml,
+        'cart-drawer': sectionsHtml
       },
       checkoutUrl: `https://${shopifyDomain}/cart`,
       totalQuantity: cartData.item_count
