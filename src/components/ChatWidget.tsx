@@ -197,9 +197,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
     // Extract numeric ID from the `gid://` format
     const numericVariantId = variantId.split('/').pop(); 
+    
+    if (!numericVariantId) {
+      console.error("Invalid variant ID format");
+      return;
+    }
   
     console.log("Attempting to add to cart:", { numericVariantId, quantity });
-  
+    
     setIsAdding(true);
     try {
       const response = await fetch('/cart/add.js', {
@@ -210,9 +215,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'include',
-body: JSON.stringify({
-  items: [{ id: variantId, quantity }] // Use variantId directly as a string
-})
+        body: JSON.stringify({
+          items: [{ id: parseInt(numericVariantId, 10), quantity }] // Send only numeric ID
+        })
       });
   
       if (!response.ok) {
@@ -246,7 +251,7 @@ body: JSON.stringify({
         void (cartNotification as HTMLElement).offsetWidth;
         cartNotification.classList.add('animate', 'active');
       }
-
+  
       const cartCount = document.querySelector('.cart-count-bubble span');
       if (cartCount) {
         cartCount.textContent = cartData.item_count;
