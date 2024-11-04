@@ -6,94 +6,107 @@ export default async function handler(req, res) {
     }
   
     const shopifyStore = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
-    const accessToken = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
+    const storefrontToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
   
     try {
       const { variantId, quantity = 1 } = req.body;
-      console.log('Processing add to cart:', { variantId, quantity });
+      console.log('Processing cart request:', { variantId, quantity });
   
-      // First, create a cart
-      const createCartResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
+      // Format the variant ID correctly
+      const formattedVariantId = variantId.includes('gid://') 
+        ? variantId 
+        : `gid://shopify/ProductVariant/${variantId}`;
+  
+      // Create cart using Storefront API
+      const cartCreateMutation = `
+        mutation cartCreate {
+          cartCreate {
+            cart {
+              id
+              checkoutUrl
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+  
+      const cartResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-          'Shopify-Storefront-Private-Token': process.env.SHOPIFY_STOREFRONT_TOKEN
+          'X-Shopify-Storefront-Access-Token': storefrontToken
         },
         body: JSON.stringify({
-          query: `
-            mutation cartCreate {
-              cartCreate {
-                cart {
-                  id
-                  checkoutUrl
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `
+          query: cartCreateMutation
         })
       });
   
-      console.log('Create cart response status:', createCartResponse.status);
-      const createCartData = await createCartResponse.json();
-      console.log('Create cart response:', createCartData);
+      const cartData = await cartResponse.json();
+      console.log('Cart create response:', cartData);
   
-      if (!createCartData.data) {
-        throw new Error(`Failed to create cart: ${JSON.stringify(createCartData.errors || createCartData)}`);
+      if (!cartData.data?.cartCreate?.cart?.id) {
+        throw new Error('Failed to create cart');
       }
   
-      const cartId = createCartData.data.cartCreate.cart.id;
+      const cartId = cartData.data.cartCreate.cart.id;
   
-      // Now add items to the cart
-      const addItemResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-          'Shopify-Storefront-Private-Token': process.env.SHOPIFY_STOREFRONT_TOKEN
-        },
-        body: JSON.stringify({
-          query: `
-            mutation cartLinesAdd($cartId: ID!, $lines: [CartLineInput!]!) {
-              cartLinesAdd(cartId: $cartId, lines: $lines) {
-                cart {
-                  id
-                  lines(first: 10) {
-                    edges {
-                      node {
+      // Add items to cart
+      const addItemsMutation = `
+        mutation addItemsToCart($cartId: ID!, $lines: [CartLineInput!]!) {
+          cartLinesAdd(cartId: $cartId, lines: $lines) {
+            cart {
+              id
+              lines(first: 10) {
+                edges {
+                  node {
+                    id
+                    quantity
+                    merchandise {
+                      ... on ProductVariant {
                         id
-                        quantity
-                        merchandise {
-                          ... on ProductVariant {
-                            id
-                            title
-                            priceV2 {
-                              amount
-                              currencyCode
-                            }
-                          }
+                        title
+                        priceV2 {
+                          amount
+                          currencyCode
                         }
                       }
                     }
                   }
-                  checkoutUrl
                 }
-                userErrors {
-                  field
-                  message
+              }
+              checkoutUrl
+              totalQuantity
+              cost {
+                totalAmount {
+                  amount
+                  currencyCode
                 }
               }
             }
-          `,
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+  
+      const addItemsResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Storefront-Access-Token': storefrontToken
+        },
+        body: JSON.stringify({
+          query: addItemsMutation,
           variables: {
             cartId,
             lines: [
               {
-                merchandiseId: variantId,
+                merchandiseId: formattedVariantId,
                 quantity: parseInt(quantity, 10)
               }
             ]
@@ -101,45 +114,40 @@ export default async function handler(req, res) {
         })
       });
   
-      console.log('Add item response status:', addItemResponse.status);
-      const addItemData = await addItemResponse.json();
-      console.log('Add item response:', addItemData);
+      const addItemsData = await addItemsResponse.json();
+      console.log('Add items response:', addItemsData);
   
-      if (!addItemData.data) {
-        throw new Error(`Failed to add item to cart: ${JSON.stringify(addItemData.errors || addItemData)}`);
+      if (addItemsData.data?.cartLinesAdd?.userErrors?.length > 0) {
+        throw new Error(addItemsData.data.cartLinesAdd.userErrors[0].message);
       }
   
-      if (addItemData.data.cartLinesAdd.userErrors.length > 0) {
-        throw new Error(addItemData.data.cartLinesAdd.userErrors[0].message);
-      }
-  
-      const cart = addItemData.data.cartLinesAdd.cart;
-      const totalQuantity = cart.lines.edges.reduce((sum, edge) => sum + edge.node.quantity, 0);
+      const updatedCart = addItemsData.data?.cartLinesAdd?.cart;
   
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   
-      // Set cart ID cookie
-      res.setHeader('Set-Cookie', `cart_id=${cartId}; Path=/; SameSite=Lax`);
-  
+      // Return success response
       return res.status(200).json({
         success: true,
         cart: {
-          id: cart.id,
-          lines: cart.lines,
-          checkoutUrl: cart.checkoutUrl
-        },
-        totalQuantity,
-        redirectToCheckout: cart.checkoutUrl
+          id: updatedCart.id,
+          checkoutUrl: updatedCart.checkoutUrl,
+          totalQuantity: updatedCart.totalQuantity,
+          cost: updatedCart.cost,
+          lines: updatedCart.lines
+        }
       });
   
     } catch (error) {
-      console.error('Cart error:', error);
-      return res.status(500).json({ 
+      console.error('Cart operation failed:', error);
+      return res.status(500).json({
         success: false,
         error: error.message,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        debug: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          message: error.message
+        } : undefined
       });
     }
   }
