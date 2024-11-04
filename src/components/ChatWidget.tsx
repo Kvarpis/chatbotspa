@@ -184,69 +184,41 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      const numericId = variant.id;
-      console.log('Starting add to cart process for variant:', numericId);
-      
+      // Get existing cart cookie from document
+      const cartCookie = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('cart='));
+  
       const response = await fetch('/api/cart/add-to-live-store', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(cartCookie && { Cookie: cartCookie })
         },
         body: JSON.stringify({
-          variantId: numericId,
+          variantId: variant.id,
           quantity: 1,
         }),
-        credentials: 'include'
+        credentials: 'include'  // Important for cookie handling
       });
   
-      console.log('Cart API response status:', response.status);
-      const data = await response.json() as CartAPIResponse;
-      console.log('Cart API response:', data);
-  
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to add to cart');
-      }
-  
-      // Show success notification
-      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-  
-      // Update cart UI sections if available
-      if (data.sections) {
-        Object.entries(data.sections).forEach(([id, html]) => {
-          const element = document.getElementById(`shopify-section-${id}`);
-          if (element && typeof html === 'string') {
-            element.innerHTML = html;
-          }
-        });
-      }
-  
-      // Update cart count if element exists
-      const cartCountElements = document.querySelectorAll('.cart-count-bubble');
-      cartCountElements.forEach(el => {
-        if (el instanceof HTMLElement) {
-          el.textContent = String(data.totalQuantity || '0');
-          el.style.display = (data.totalQuantity > 0) ? 'flex' : 'none';
+      const data = await response.json();
+      
+      if (response.ok) {
+        showNotification(`${product.title} er lagt til i handlekurven`, 'success');
+        
+        // Refresh the cart drawer if it exists
+        const cartDrawerElement = document.querySelector('cart-drawer');
+        if (cartDrawerElement) {
+          // @ts-ignore - Dawn theme specific
+          cartDrawerElement.open();
         }
-      });
   
-      // Try to trigger cart drawer if it exists
-      try {
-        const cartDrawer = document.querySelector('cart-drawer') as CustomCartDrawer | null;
-        if (cartDrawer?.open) {
-          cartDrawer.open();
-        } else {
-          // Fallback: redirect to cart page
-          window.location.href = data.checkoutUrl;
-        }
-      } catch (drawerError) {
-        console.error('Cart drawer error:', drawerError);
-        // Fallback: redirect to cart page
-        window.location.href = data.checkoutUrl;
+        setIsAdded(true);
+        setTimeout(() => setIsAdded(false), 2000);
+      } else {
+        throw new Error(data.description || 'Failed to add to cart');
       }
-  
-      setIsAdded(true);
-      setTimeout(() => setIsAdded(false), 2000);
-  
     } catch (error) {
       console.error('Add to cart error:', error);
       showNotification(
