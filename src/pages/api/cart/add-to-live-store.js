@@ -6,148 +6,103 @@ export default async function handler(req, res) {
     }
   
     const shopifyStore = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
-    const storefrontToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
-  
+    
     try {
       const { variantId, quantity = 1 } = req.body;
-      console.log('Processing cart request:', { variantId, quantity });
+      console.log('Adding to cart:', { variantId, quantity });
   
-      // Format the variant ID correctly
-      const formattedVariantId = variantId.includes('gid://') 
-        ? variantId 
-        : `gid://shopify/ProductVariant/${variantId}`;
-  
-      // Create cart using Storefront API
-      const cartCreateMutation = `
-        mutation cartCreate {
-          cartCreate {
-            cart {
-              id
-              checkoutUrl
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-  
-      const cartResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
-        method: 'POST',
+      // First get existing cart data if any
+      const cartResponse = await fetch(`https://${shopifyStore}/cart.js`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Storefront-Access-Token': storefrontToken
-        },
-        body: JSON.stringify({
-          query: cartCreateMutation
-        })
+          ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+        }
       });
   
       const cartData = await cartResponse.json();
-      console.log('Cart create response:', cartData);
+      console.log('Current cart:', cartData);
   
-      if (!cartData.data?.cartCreate?.cart?.id) {
-        throw new Error('Failed to create cart');
-      }
-  
-      const cartId = cartData.data.cartCreate.cart.id;
-  
-      // Add items to cart
-      const addItemsMutation = `
-        mutation addItemsToCart($cartId: ID!, $lines: [CartLineInput!]!) {
-          cartLinesAdd(cartId: $cartId, lines: $lines) {
-            cart {
-              id
-              lines(first: 10) {
-                edges {
-                  node {
-                    id
-                    quantity
-                    merchandise {
-                      ... on ProductVariant {
-                        id
-                        title
-                        priceV2 {
-                          amount
-                          currencyCode
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              checkoutUrl
-              totalQuantity
-              cost {
-                totalAmount {
-                  amount
-                  currencyCode
-                }
-              }
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
-      `;
-  
-      const addItemsResponse = await fetch(`https://${shopifyStore}/api/2024-01/graphql.json`, {
+      // Add to cart
+      const addToCartResponse = await fetch(`https://${shopifyStore}/cart/add.js`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Storefront-Access-Token': storefrontToken
+          ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
         },
         body: JSON.stringify({
-          query: addItemsMutation,
-          variables: {
-            cartId,
-            lines: [
-              {
-                merchandiseId: formattedVariantId,
-                quantity: parseInt(quantity, 10)
-              }
-            ]
-          }
+          items: [{
+            id: parseInt(variantId.split('/').pop(), 10),
+            quantity: parseInt(quantity, 10)
+          }]
         })
       });
   
-      const addItemsData = await addItemsResponse.json();
-      console.log('Add items response:', addItemsData);
-  
-      if (addItemsData.data?.cartLinesAdd?.userErrors?.length > 0) {
-        throw new Error(addItemsData.data.cartLinesAdd.userErrors[0].message);
+      if (!addToCartResponse.ok) {
+        const errorData = await addToCartResponse.json();
+        throw new Error(errorData.description || 'Failed to add to cart');
       }
   
-      const updatedCart = addItemsData.data?.cartLinesAdd?.cart;
+      const addToCartData = await addToCartResponse.json();
+      console.log('Add to cart response:', addToCartData);
+  
+      // Get updated cart
+      const updatedCartResponse = await fetch(`https://${shopifyStore}/cart.js`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+        }
+      });
+  
+      const updatedCart = await updatedCartResponse.json();
+  
+      // Get sections for cart UI updates
+      const sectionsResponse = await fetch(
+        `https://${shopifyStore}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text&t=${Date.now()}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...req.headers.cookie ? { 'Cookie': req.headers.cookie } : {}
+          }
+        }
+      );
+  
+      const sections = await sectionsResponse.json();
+  
+      // Forward Shopify's cart cookies to maintain session
+      const shopifyCookies = addToCartResponse.headers.get('set-cookie');
+      if (shopifyCookies) {
+        // Parse and forward all cart-related cookies
+        const cookieStrings = shopifyCookies.split(',').map(cookie => {
+          // Get the main cookie part before attributes
+          const mainPart = cookie.split(';')[0].trim();
+          if (mainPart.startsWith('cart=') || mainPart.startsWith('_shopify_cart=')) {
+            return `${mainPart}; path=/; SameSite=Lax`;
+          }
+          return null;
+        }).filter(Boolean);
+  
+        if (cookieStrings.length > 0) {
+          res.setHeader('Set-Cookie', cookieStrings);
+        }
+      }
   
       // Set CORS headers
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   
-      // Return success response
       return res.status(200).json({
         success: true,
-        cart: {
-          id: updatedCart.id,
-          checkoutUrl: updatedCart.checkoutUrl,
-          totalQuantity: updatedCart.totalQuantity,
-          cost: updatedCart.cost,
-          lines: updatedCart.lines
-        }
+        cart: updatedCart,
+        sections,
+        checkoutUrl: `https://${shopifyStore}/cart`,
+        totalQuantity: updatedCart.item_count
       });
   
     } catch (error) {
-      console.error('Cart operation failed:', error);
+      console.error('Cart error:', error);
       return res.status(500).json({
         success: false,
-        error: error.message,
-        debug: process.env.NODE_ENV === 'development' ? {
-          stack: error.stack,
-          message: error.message
-        } : undefined
+        error: error.message
       });
     }
   }

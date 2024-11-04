@@ -202,7 +202,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      const numericId = variant.id; // Use the full ID for GraphQL API
+      const numericId = variant.id;
       console.log('Starting add to cart process for variant:', numericId);
       
       const response = await fetch('/api/cart/add-to-live-store', {
@@ -214,11 +214,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           variantId: numericId,
           quantity: 1,
         }),
-        credentials: 'include'
+        credentials: 'include'  // Important for cookie handling
       });
   
+      console.log('Cart API response status:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
+      console.log('Cart API response:', data);
   
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to add to cart');
@@ -226,6 +227,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
       // Show success notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
+  
+      // Update cart UI sections if available
+      if (data.sections) {
+        Object.entries(data.sections).forEach(([id, html]) => {
+          const element = document.getElementById(`shopify-section-${id}`);
+          if (element && typeof html === 'string') {
+            element.innerHTML = html;
+          }
+        });
+      }
   
       // Update cart count if element exists
       const cartCountElements = document.querySelectorAll('.cart-count-bubble');
@@ -236,9 +247,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         }
       });
   
-      // Handle redirect
-      if (data.redirectToCheckout) {
-        window.location.href = data.redirectToCheckout;
+      // Try to trigger cart drawer if it exists
+      try {
+        // Try built-in cart drawer
+        const cartDrawer = document.querySelector('cart-drawer');
+        if (cartDrawer && 'open' in cartDrawer) {
+          (cartDrawer as any).open();
+        } else {
+          // Fallback: redirect to cart page
+          window.location.href = data.checkoutUrl;
+        }
+      } catch (drawerError) {
+        console.error('Cart drawer error:', drawerError);
+        // Fallback: redirect to cart page
+        window.location.href = data.checkoutUrl;
       }
   
       setIsAdded(true);
