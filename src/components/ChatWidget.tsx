@@ -4,7 +4,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CustomCartDrawer, ShopifyGlobal, CartAPIResponse } from '../types/shopify';
 
 // Type definitions
 interface Config {
@@ -80,6 +79,10 @@ interface Product {
   available?: boolean;
 }
 
+// Add this interface for Dawn's cart drawer
+interface DawnCartDrawer extends HTMLElement {
+  open(): void;
+}
 
 // Constants
 const CONFIG: Config = {
@@ -199,7 +202,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           variantId: variant.id,
           quantity: 1,
         }),
-        credentials: 'include'  // Important for cookie handling
+        credentials: 'include'
       });
   
       const data = await response.json();
@@ -210,8 +213,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         // Refresh the cart drawer if it exists
         const cartDrawerElement = document.querySelector('cart-drawer');
         if (cartDrawerElement) {
-          // @ts-ignore - Dawn theme specific
-          cartDrawerElement.open();
+          (cartDrawerElement as DawnCartDrawer).open();
         }
   
         setIsAdded(true);
