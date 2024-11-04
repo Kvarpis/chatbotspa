@@ -196,17 +196,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
     // Extract numeric ID from the `gid://` format
-    const numericVariantId = variantId.split('/').pop(); 
+    const numericVariantId = variantId.split('/').pop();
     
     if (!numericVariantId) {
       console.error("Invalid variant ID format");
       return;
     }
   
-    console.log("Attempting to add to cart:", { numericVariantId, quantity });
-    
     setIsAdding(true);
     try {
+      // First add to cart
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -216,56 +215,57 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          items: [{ id: parseInt(numericVariantId, 10), quantity }] // Send only numeric ID
+          items: [{ id: parseInt(numericVariantId, 10), quantity }]
         })
       });
   
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Add to cart failed:", errorText);
-        throw new Error(`Add to cart failed: ${errorText}`);
-      }
-  
       const addData = await response.json();
-      console.log("Add to cart response:", addData);
+      console.log('Add to cart response:', addData);
   
+      // Get current cart data
       const cartResponse = await fetch('/cart.js', {
         credentials: 'include',
-        headers: { 'Accept': 'application/json' }
+        headers: {
+          'Accept': 'application/json'
+        }
       });
   
-      if (!cartResponse.ok) {
-        const errorText = await cartResponse.text();
-        console.error("Failed to fetch updated cart:", errorText);
-        throw new Error(`Cart fetch failed: ${errorText}`);
-      }
-  
       const cartData = await cartResponse.json();
-      console.log("Updated cart data:", cartData);
+      console.log('Cart data:', cartData);
   
+      // Get the cart notification element
       const cartNotification = document.querySelector('cart-notification');
+      
       if (cartNotification) {
-        const event = new CustomEvent('cart:updated', { detail: { cart: cartData } });
+        // Update cart UI using Dawn theme's built-in methods
+        const event = new CustomEvent('cart:updated', {
+          detail: { cart: cartData }
+        });
         document.documentElement.dispatchEvent(event);
+        
+        // Show notification if it exists
         cartNotification.classList.remove('animate', 'active');
+        // Trigger reflow
         void (cartNotification as HTMLElement).offsetWidth;
         cartNotification.classList.add('animate', 'active');
       }
-  
+
+      // Try to update cart count if it exists
       const cartCount = document.querySelector('.cart-count-bubble span');
       if (cartCount) {
-        cartCount.textContent = cartData.item_count;
+        cartCount.textContent = cartData.item_count.toString();
       }
   
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
+  
     } catch (error) {
       console.error("Error during add to cart process:", error);
-      showNotification("Failed to add item to cart", "error");
+      showNotification(TRANSLATIONS.error, "error");
     } finally {
       setIsAdding(false);
     }
-  };  
+  };
   
   
   return (
