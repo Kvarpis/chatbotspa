@@ -221,75 +221,45 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
 
-    console.log("Numeric variant ID:", numericVariantId); // Debug log
+    console.log("Numeric variant ID:", numericVariantId);
 
     setIsAdding(true);
     try {
-      // First try to verify the variant exists
-      const response = await fetch('/cart/add.js', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({
-          form_type: 'product',
-          utf8: '✓',
-          id: parseInt(numericVariantId, 10),
-          quantity: 1,
-          sections: 'cart-drawer,cart-icon-bubble'
-        })
-      });
+      // Create a hidden form and submit it
+      const form = document.createElement('form');
+      form.method = 'post';
+      form.action = '/cart/add';
 
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
+      const idInput = document.createElement('input');
+      idInput.type = 'hidden';
+      idInput.name = 'id';
+      idInput.value = numericVariantId;
 
-      if (!response.ok) {
-        // Try alternative format
-        const alternativeResponse = await fetch('/cart/add.js', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          credentials: 'same-origin',
-          body: JSON.stringify({
-            items: [{
-              id: parseInt(numericVariantId, 10),
-              quantity: 1
-            }]
-          })
-        });
+      const quantityInput = document.createElement('input');
+      quantityInput.type = 'hidden';
+      quantityInput.name = 'quantity';
+      quantityInput.value = quantity.toString();
 
-        const altResponseText = await alternativeResponse.text();
-        console.log('Alternative response:', altResponseText);
+      const formTypeInput = document.createElement('input');
+      formTypeInput.type = 'hidden';
+      formTypeInput.name = 'form_type';
+      formTypeInput.value = 'product';
 
-        if (!alternativeResponse.ok) {
-          throw new Error(`Failed to add to cart: ${altResponseText}`);
-        }
+      const utf8Input = document.createElement('input');
+      utf8Input.type = 'hidden';
+      utf8Input.name = 'utf8';
+      utf8Input.value = '✓';
 
-        const altData = JSON.parse(altResponseText);
-        console.log('Alternative add to cart response:', altData);
-      } else {
-        const data = JSON.parse(responseText);
-        console.log('Add to cart response:', data);
-      }
+      form.appendChild(idInput);
+      form.appendChild(quantityInput);
+      form.appendChild(formTypeInput);
+      form.appendChild(utf8Input);
 
-      // Trigger cart refresh
-      document.documentElement.dispatchEvent(
-        new CustomEvent('cart:refresh', {
-          bubbles: true
-        })
-      );
+      // Add the form to the document
+      document.body.appendChild(form);
 
-      // Also try to trigger the cart drawer directly
-      const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
-      if (cartDrawerTrigger instanceof HTMLElement) {
-        cartDrawerTrigger.click();
-      }
+      // Submit the form
+      form.submit();
 
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
