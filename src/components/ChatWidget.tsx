@@ -199,60 +199,82 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleAddToCart = async () => {
-    if (isAdding || !isAvailable) return;
-  
-    setIsAdding(true);
+  // In your ProductCard component
+const handleAddToCart = async () => {
+  if (isAdding || !isAvailable) return;
+
+  setIsAdding(true);
+  try {
+    console.log('Adding to cart:', variant.id);
+    
+    const response = await fetch('/api/cart/add-to-live-store', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        variantId: variant.id,
+        quantity: 1,
+      })
+    });
+
+    console.log('Response status:', response.status);
+    const responseText = await response.text();
+    console.log('Raw response:', responseText);
+
+    let data;
     try {
-      console.log('Adding to cart:', variant.id);
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('Failed to parse response as JSON:', responseText);
+      throw new Error('Invalid response from server');
+    }
+
+    if (response.ok && data.success) {
+      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
       
-      const response = await fetch('/api/cart/add-to-live-store', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          variantId: variant.id,
-          quantity: 1,
-        })
-      });
-  
-      console.log('Response status:', response.status);
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
-  
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        // Removed unused error parameter
-        console.error('Failed to parse response as JSON:', responseText);
-        throw new Error('Invalid response from server');
-      }
-  
-      if (response.ok && data.success) {
-        showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-        
-        const cartDrawerElement = document.querySelector('cart-drawer');
-        if (cartDrawerElement) {
-          (cartDrawerElement as DawnCartDrawer).open();
+      // Update cart sections
+if (data.sections) {
+  Object.entries(data.sections).forEach(([sectionId, html]) => {
+    const element = document.getElementById(sectionId);
+    if (element && typeof html === 'string') {  // Type guard to ensure html is a string
+      element.innerHTML = html;
+    }
+  });
+}
+
+      // Trigger cart update event for Dawn theme
+      const updateEvent = new CustomEvent('cart:refresh', {
+        bubbles: true,
+        detail: { 
+          source: 'cart-items',
+          cartData: data.cart,
+          sections: data.sections
         }
-  
-        setIsAdded(true);
-        setTimeout(() => setIsAdded(false), 2000);
-      } else {
-        throw new Error(data.error || 'Failed to add to cart');
+      });
+      document.dispatchEvent(updateEvent);
+
+      // Open cart drawer if it exists
+      const cartDrawerElement = document.querySelector('cart-drawer');
+      if (cartDrawerElement && 'open' in cartDrawerElement) {
+        (cartDrawerElement as DawnCartDrawer).open();
       }
-    } catch (err) { // Changed from error to err
-      console.error('Add to cart error:', err);
-      showNotification(
-        err instanceof Error ? err.message : "Could not add to cart",
-        "error"
-      );
-    } finally {
-      setIsAdding(false);
+
+      setIsAdded(true);
+      setTimeout(() => setIsAdded(false), 2000);
+    } else {
+      throw new Error(data.error || 'Failed to add to cart');
+    }
+  } catch (err) {
+    console.error('Add to cart error:', err);
+    showNotification(
+      err instanceof Error ? err.message : "Could not add to cart",
+      "error"
+    );
+  } finally {
+    setIsAdding(false);
     }
   };
 
