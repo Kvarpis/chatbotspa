@@ -207,7 +207,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         throw new Error('Invalid variant ID');
       }
   
-      // First add to cart
+      // First add to cart with better error handling
       const addToCartResponse = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -221,32 +221,68 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         })
       });
   
+      // Log the raw response for debugging
+      const responseText = await addToCartResponse.text();
+      console.log('Raw add to cart response:', responseText);
+  
+      let addToCartData;
+      try {
+        addToCartData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response:', responseText);
+        throw new Error('Invalid response format from cart');
+      }
+  
       if (!addToCartResponse.ok) {
-        const errorData = await addToCartResponse.json();
-        throw new Error(errorData.description || 'Failed to add to cart');
+        throw new Error(addToCartData?.description || 'Failed to add to cart');
       }
   
       // Show success notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
   
-      // Trigger Shopify's onCartUpdate if available
-      if (window.Shopify && typeof window.Shopify.onCartUpdate === 'function') {
+      // Try to get updated cart data
+      try {
         const cartResponse = await fetch('/cart.js', {
           credentials: 'include',
           headers: {
             'Accept': 'application/json'
           }
         });
-        const cartData = await cartResponse.json();
-        window.Shopify.onCartUpdate(cartData);
-      }
   
-      // Update cart notification UI
-      const cartNotification = document.querySelector('cart-notification');
-      if (cartNotification instanceof HTMLElement) {
-        cartNotification.classList.remove('animate', 'active');
-        void cartNotification.offsetWidth; // Trigger reflow
-        cartNotification.classList.add('animate', 'active');
+        if (!cartResponse.ok) {
+          throw new Error('Failed to fetch cart data');
+        }
+  
+        const cartText = await cartResponse.text();
+        console.log('Raw cart response:', cartText);
+  
+        const cartData = JSON.parse(cartText);
+  
+        // Try to trigger Shopify's cart update
+        if (window.Shopify?.onCartUpdate) {
+          window.Shopify.onCartUpdate(cartData);
+        }
+  
+        // Update cart notification UI if it exists
+        const cartNotification = document.querySelector('cart-notification');
+        if (cartNotification instanceof HTMLElement) {
+          cartNotification.classList.remove('animate', 'active');
+          // Force reflow
+          void cartNotification.offsetWidth;
+          cartNotification.classList.add('animate', 'active');
+        }
+  
+        // Refresh the page sections if needed
+        document.documentElement.dispatchEvent(
+          new CustomEvent('cart:refresh', {
+            bubbles: true,
+            detail: { source: 'product-form' }
+          })
+        );
+  
+      } catch (cartError) {
+        console.error('Cart update error:', cartError);
+        // Continue since the item was added successfully
       }
   
       setIsAdded(true);
