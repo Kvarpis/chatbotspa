@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   try {
     const { variantId, quantity = 1 } = req.body;
     const shopifyDomain = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
-    
+
     if (!shopifyDomain) {
       throw new Error('Shopify domain not configured');
     }
@@ -67,9 +67,9 @@ export default async function handler(req, res) {
     }
 
     // Forward cookies from Shopify
-    const shopifyCookies = addToCartResponse.headers.get('set-cookie');
+    const shopifyCookies = addToCartResponse.headers.raw()['set-cookie'];
     if (shopifyCookies) {
-      res.setHeader('Set-Cookie', shopifyCookies);
+      shopifyCookies.forEach(cookie => res.setHeader('Set-Cookie', cookie));
     }
 
     // Now get cart data
