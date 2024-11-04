@@ -211,7 +211,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
     console.log("Attempting to add variant:", variantId);
     
-    // Extract numeric ID from the `gid://` format if needed
     const numericVariantId = variantId.includes('gid://') 
       ? variantId.split('/').pop() 
       : variantId;
@@ -221,45 +220,54 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
 
-    console.log("Numeric variant ID:", numericVariantId);
-
     setIsAdding(true);
     try {
-      // Create a hidden form and submit it
-      const form = document.createElement('form');
-      form.method = 'post';
-      form.action = '/cart/add';
+      // Create form data
+      const formData = new URLSearchParams();
+      formData.append('form_type', 'product');
+      formData.append('utf8', '✓');
+      formData.append('id', numericVariantId);
+      formData.append('quantity', quantity.toString());
+      formData.append('sections', 'cart-drawer,cart-icon-bubble');
 
-      const idInput = document.createElement('input');
-      idInput.type = 'hidden';
-      idInput.name = 'id';
-      idInput.value = numericVariantId;
+      const response = await fetch('/cart/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: formData.toString()
+      });
 
-      const quantityInput = document.createElement('input');
-      quantityInput.type = 'hidden';
-      quantityInput.name = 'quantity';
-      quantityInput.value = quantity.toString();
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Add to cart failed:', errorText);
+        throw new Error('Failed to add to cart');
+      }
 
-      const formTypeInput = document.createElement('input');
-      formTypeInput.type = 'hidden';
-      formTypeInput.name = 'form_type';
-      formTypeInput.value = 'product';
+      // Get updated cart data
+      const cartResponse = await fetch('/cart.js');
+      const cartData = await cartResponse.json();
+      console.log('Updated cart:', cartData);
 
-      const utf8Input = document.createElement('input');
-      utf8Input.type = 'hidden';
-      utf8Input.name = 'utf8';
-      utf8Input.value = '✓';
+      // Update cart UI
+      const cartCount = document.querySelector('.cart-count-bubble span');
+      if (cartCount) {
+        cartCount.textContent = cartData.item_count.toString();
+      }
 
-      form.appendChild(idInput);
-      form.appendChild(quantityInput);
-      form.appendChild(formTypeInput);
-      form.appendChild(utf8Input);
+      // Try to open cart drawer if it exists
+      const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
+      if (cartDrawerTrigger instanceof HTMLElement) {
+        cartDrawerTrigger.click();
+      }
 
-      // Add the form to the document
-      document.body.appendChild(form);
-
-      // Submit the form
-      form.submit();
+      // Dispatch cart update event
+      document.documentElement.dispatchEvent(
+        new CustomEvent('cart:refresh', {
+          bubbles: true
+        })
+      );
 
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
