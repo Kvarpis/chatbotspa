@@ -95,11 +95,6 @@ interface Product {
   available?: boolean;
 }
 
-// Add this interface for Dawn's cart drawer
-interface DawnCartDrawer extends HTMLElement {
-  open(): void;
-}
-
 
 // Constants
 const CONFIG: Config = {
@@ -207,12 +202,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       const numericId = variant?.id?.includes('/') 
         ? variant.id.split('/').pop() 
         : variant.id;
-
+  
       if (!numericId) {
         throw new Error('Invalid variant ID');
       }
-
-      // This is the working cart add implementation
+  
       const addToCartResponse = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -225,9 +219,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           items: [{ id: numericId, quantity: 1 }]
         })
       });
-
-      const addToCartData = await addToCartResponse.json();
-      
+  
+      // Check response and handle errors
+      if (!addToCartResponse.ok) {
+        const errorData = await addToCartResponse.json();
+        throw new Error(errorData.description || 'Failed to add to cart');
+      }
+  
       // Get cart data to trigger UI updates
       const cartResponse = await fetch('/cart.js', {
         credentials: 'include',
@@ -235,30 +233,31 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Accept': 'application/json'
         }
       });
-
+  
       const cartData = await cartResponse.json();
-
+  
       // Show notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-
+  
       // Trigger cart update event for Dawn theme
       const cartUpdateEvent = new CustomEvent('cart:updated', {
         detail: { cart: cartData }
       });
       document.documentElement.dispatchEvent(cartUpdateEvent);
-
+  
       // Show notification if it exists
-      const cartNotification = document.querySelector('cart-notification');
-      if (cartNotification) {
-        (cartNotification as HTMLElement).classList.remove('animate', 'active');
-        // Trigger reflow
-        void (cartNotification as HTMLElement).offsetWidth;
-        (cartNotification as HTMLElement).classList.add('animate', 'active');
-      }
-
+      // Show notification if it exists
+const cartNotification = document.querySelector('cart-notification');
+if (cartNotification) {
+  cartNotification.classList.remove('animate', 'active');
+  // Trigger reflow with type assertion
+  void (cartNotification as HTMLElement).offsetWidth;
+  cartNotification.classList.add('animate', 'active');
+}
+  
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
-
+  
     } catch (err) {
       console.error('Add to cart error:', err);
       showNotification(
