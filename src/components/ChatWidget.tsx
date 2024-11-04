@@ -199,85 +199,96 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // In your ProductCard component
-const handleAddToCart = async () => {
-  if (isAdding || !isAvailable) return;
-
-  setIsAdding(true);
-  try {
-    console.log('Adding to cart:', variant.id);
-    
-    const response = await fetch('/api/cart/add-to-live-store', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        variantId: variant.id,
-        quantity: 1,
-      })
-    });
-
-    console.log('Response status:', response.status);
-    const responseText = await response.text();
-    console.log('Raw response:', responseText);
-
-    let data;
+  const handleAddToCart = async () => {
+    if (isAdding || !isAvailable) return;
+  
+    setIsAdding(true);
     try {
-      data = JSON.parse(responseText);
-    } catch {
-      console.error('Failed to parse response as JSON:', responseText);
-      throw new Error('Invalid response from server');
-    }
-
-    if (response.ok && data.success) {
-      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-      
-      // Update cart sections
-if (data.sections) {
-  Object.entries(data.sections).forEach(([sectionId, html]) => {
-    const element = document.getElementById(sectionId);
-    if (element && typeof html === 'string') {  // Type guard to ensure html is a string
-      element.innerHTML = html;
-    }
-  });
-}
-
-      // Trigger cart update event for Dawn theme
-      const updateEvent = new CustomEvent('cart:refresh', {
-        bubbles: true,
-        detail: { 
-          source: 'cart-items',
-          cartData: data.cart,
-          sections: data.sections
-        }
-      });
-      document.dispatchEvent(updateEvent);
-
-      // Open cart drawer if it exists
-      const cartDrawerElement = document.querySelector('cart-drawer');
-      if (cartDrawerElement && 'open' in cartDrawerElement) {
-        (cartDrawerElement as DawnCartDrawer).open();
+      // Check if variant.id exists, and extract the numeric ID if it's in GraphQL format
+      let numericVariantId = variant?.id?.startsWith('gid://shopify/ProductVariant/')
+        ? variant.id.split('/').pop()
+        : variant.id;
+  
+      // If numericVariantId is still undefined, handle it by providing a fallback or error message
+      if (!numericVariantId) {
+        console.error('Invalid variant ID');
+        showNotification("Could not add to cart: Invalid variant ID", "error");
+        return;
       }
-
-      setIsAdded(true);
-      setTimeout(() => setIsAdded(false), 2000);
-    } else {
-      throw new Error(data.error || 'Failed to add to cart');
-    }
-  } catch (err) {
-    console.error('Add to cart error:', err);
-    showNotification(
-      err instanceof Error ? err.message : "Could not add to cart",
-      "error"
-    );
-  } finally {
-    setIsAdding(false);
+  
+      console.log('Adding to cart (numeric ID):', numericVariantId);
+  
+      const response = await fetch('/api/cart/add-to-live-store', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          variantId: numericVariantId, // Send only the numeric part
+          quantity: 1,
+        })
+      });
+  
+      console.log('Response status:', response.status);
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+  
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        console.error('Failed to parse response as JSON:', responseText);
+        throw new Error('Invalid response from server');
+      }
+  
+      if (response.ok && data.success) {
+        showNotification(`${product.title} er lagt til i handlekurven`, 'success');
+  
+        // Update cart sections
+        if (data.sections) {
+          Object.entries(data.sections).forEach(([sectionId, html]) => {
+            const element = document.getElementById(sectionId);
+            if (element && typeof html === 'string') {
+              element.innerHTML = html;
+            }
+          });
+        }
+  
+        // Trigger cart update event for Dawn theme
+        const updateEvent = new CustomEvent('cart:refresh', {
+          bubbles: true,
+          detail: { 
+            source: 'cart-items',
+            cartData: data.cart,
+            sections: data.sections
+          }
+        });
+        document.dispatchEvent(updateEvent);
+  
+        // Open cart drawer if it exists
+        const cartDrawerElement = document.querySelector('cart-drawer');
+        if (cartDrawerElement && 'open' in cartDrawerElement) {
+          (cartDrawerElement as DawnCartDrawer).open();
+        }
+  
+        setIsAdded(true);
+        setTimeout(() => setIsAdded(false), 2000);
+      } else {
+        throw new Error(data.error || 'Failed to add to cart');
+      }
+    } catch (err) {
+      console.error('Add to cart error:', err);
+      showNotification(
+        err instanceof Error ? err.message : "Could not add to cart",
+        "error"
+      );
+    } finally {
+      setIsAdding(false);
     }
   };
-
+  
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
       {notification && (
