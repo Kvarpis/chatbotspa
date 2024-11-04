@@ -195,8 +195,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
+    console.log("Raw variant ID received:", variantId); // Debug log
+    
     // Extract numeric ID from the `gid://` format
     const numericVariantId = variantId.split('/').pop();
+    console.log("Extracted numeric ID:", numericVariantId); // Debug log
     
     if (!numericVariantId) {
       console.error("Invalid variant ID format");
@@ -205,6 +208,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
+      const requestBody = {
+        items: [{ id: parseInt(numericVariantId, 10), quantity }]
+      };
+      console.log("Sending request with body:", requestBody); // Debug log
+  
       // First add to cart
       const response = await fetch('/cart/add.js', {
         method: 'POST',
@@ -214,10 +222,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'include',
-        body: JSON.stringify({
-          items: [{ id: parseInt(numericVariantId, 10), quantity }]
-        })
+        body: JSON.stringify(requestBody)
       });
+  
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Cart response not OK:", response.status, errorText);
+        throw new Error(`Cart request failed: ${errorText}`);
+      }
   
       const addData = await response.json();
       console.log('Add to cart response:', addData);
@@ -229,6 +241,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Accept': 'application/json'
         }
       });
+  
+      if (!cartResponse.ok) {
+        const errorText = await cartResponse.text();
+        console.error("Cart fetch not OK:", cartResponse.status, errorText);
+        throw new Error(`Cart fetch failed: ${errorText}`);
+      }
   
       const cartData = await cartResponse.json();
       console.log('Cart data:', cartData);
@@ -249,7 +267,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         void (cartNotification as HTMLElement).offsetWidth;
         cartNotification.classList.add('animate', 'active');
       }
-
+  
       // Try to update cart count if it exists
       const cartCount = document.querySelector('.cart-count-bubble span');
       if (cartCount) {
@@ -312,14 +330,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           </p>
 
           <div className="mt-2 flex justify-end">
-            <button
-              onClick={() => {
-                if (variant?.id) {
-                  handleAddToCart(variant.id); // Ensures that variant.id exists before calling the function
-                } else {
-                  console.error("No valid variant ID available.");
-                }
-              }}
+          <button
+  onClick={() => {
+    if (variant?.id) {
+      console.log("Attempting to add variant:", variant.id); // Debug log
+      handleAddToCart(variant.id);
+    } else {
+      console.error("No valid variant ID available.");
+    }
+  }}
               disabled={isAdding || !isAvailable}
               className={`
                 px-3 py-1.5 rounded text-white text-xs font-medium
