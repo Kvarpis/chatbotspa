@@ -195,80 +195,51 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async () => {
-    if (isAdding || !isAvailable) return;
-    setIsAdding(true);
-    
-    try {
-      const numericId = variant?.id?.includes('/') 
-        ? variant.id.split('/').pop() 
-        : variant.id;
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        items: [{ id: 49285870715170, quantity: 1 }]
+      })
+    })
+      .then(response => response.json())
+      .then(addData => {
+        console.log('Add to cart response:', addData);
   
-      if (!numericId) {
-        throw new Error('Invalid variant ID');
-      }
+        // Fetch updated cart data
+        return fetch('/cart.js', {
+          credentials: 'include',
+          headers: { 'Accept': 'application/json' }
+        });
+      })
+      .then(response => response.json())
+      .then(cartData => {
+        console.log('Cart data:', cartData);
   
-      // Add to cart using `/cart/add.js` directly
-      const addToCartResponse = await fetch('/cart/add.js', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          items: [{ id: parseInt(numericId, 10), quantity: 1 }]
-        })
-      });
-  
-      const addData = await addToCartResponse.json();
-      console.log('Add to cart response:', addData);
-  
-      if (!addToCartResponse.ok) {
-        throw new Error(addData?.description || 'Failed to add to cart');
-      }
-  
-      showNotification(`${product.title} er lagt til i handlekurven`, 'success');
-  
-      // Fetch updated cart data from `/cart.js`
-      const cartResponse = await fetch('/cart.js', {
-        credentials: 'include',
-        headers: {
-          'Accept': 'application/json'
+        // Update cart notification
+        const cartNotification = document.querySelector('cart-notification');
+        if (cartNotification) {
+          const event = new CustomEvent('cart:updated', { detail: { cart: cartData } });
+          document.documentElement.dispatchEvent(event);
+          cartNotification.classList.remove('animate', 'active');
+          void (cartNotification as HTMLElement).offsetWidth; // Trigger reflow
+          cartNotification.classList.add('animate', 'active');
         }
-      });
-  
-      const cartData = await cartResponse.json();
-      console.log('Cart data:', cartData);
-  
-      // Update cart UI with Dawn theme's built-in methods
-      const cartNotification = document.querySelector('cart-notification');
-if (cartNotification instanceof HTMLElement) {
-  cartNotification.classList.remove('animate', 'active');
-  void cartNotification.offsetWidth; // Trigger reflow
-  cartNotification.classList.add('animate', 'active');
-}
 
-  
-      // Update cart count if it exists
-      const cartCount = document.querySelector('.cart-count-bubble span');
-      if (cartCount) {
-        cartCount.textContent = cartData.item_count;
-      }
-  
-      setIsAdded(true);
-      setTimeout(() => setIsAdded(false), 2000);
-  
-    } catch (err) {
-      console.error('Add to cart error:', err);
-      showNotification(
-        err instanceof Error ? err.message : "Could not add to cart",
-        "error"
-      );
-    } finally {
-      setIsAdding(false);
-    }
-  };  
+        // Update cart count
+        const cartCount = document.querySelector('.cart-count-bubble span');
+        if (cartCount) {
+          cartCount.textContent = cartData.item_count;
+        }
+      })
+      .catch(error => console.error('Error:', error));
+  };
+   
   
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
