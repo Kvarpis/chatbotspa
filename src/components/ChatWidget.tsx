@@ -211,18 +211,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
     console.log("Attempting to add variant:", variantId);
     
+    // Extract numeric ID from the `gid://` format if needed
+    const numericVariantId = variantId.includes('gid://') 
+      ? variantId.split('/').pop() 
+      : variantId;
+      
+    if (!numericVariantId) {
+      console.error("Invalid variant ID format");
+      return;
+    }
+
     setIsAdding(true);
     try {
-      // Use the exact same structure that worked in the console
-      const requestBody = {
-        form_type: 'product',
-        utf8: '✓',
-        id: 49285874319650, // Using the direct ID number
-        quantity: 1,
-        sections: 'cart-drawer,cart-icon-bubble'
-      };
-      console.log('Sending request with body:', requestBody);
-  
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -231,32 +231,36 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'same-origin',
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          form_type: 'product',
+          utf8: '✓',
+          id: parseInt(numericVariantId, 10),
+          quantity: quantity,
+          sections: 'cart-drawer,cart-icon-bubble'
+        })
       });
-  
-      // Log the raw response
+
       const responseText = await response.text();
       console.log('Raw response:', responseText);
-  
+
       if (!response.ok) {
-        console.error('Response not OK:', response.status, responseText);
         throw new Error(`Failed to add to cart: ${responseText}`);
       }
-  
-      // Try to parse the response
+
       const data = JSON.parse(responseText);
       console.log('Add to cart response:', data);
-  
+
       // Trigger cart refresh
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:refresh', {
           bubbles: true
         })
       );
-  
+
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
-  
+      showNotification(TRANSLATIONS.added, "success");
+
     } catch (error) {
       console.error("Error during add to cart process:", error);
       showNotification(TRANSLATIONS.error, "error");
