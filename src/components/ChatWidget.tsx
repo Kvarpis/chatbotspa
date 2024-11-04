@@ -222,6 +222,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
+      // Log the exact request we're about to make
+      const requestBody = {
+        form_type: 'product',
+        utf8: '✓',
+        id: parseInt(numericVariantId, 10),
+        quantity: quantity,
+        sections: 'cart-drawer,cart-icon-bubble'
+      };
+      console.log('Sending request with body:', requestBody);
+  
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -230,30 +240,35 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'same-origin',
-        body: JSON.stringify({
-          form_type: 'product',
-          utf8: '✓',
-          id: parseInt(numericVariantId, 10),
-          quantity: quantity,
-          sections: 'cart-drawer,cart-icon-bubble'
-        })
+        body: JSON.stringify(requestBody)
       });
   
+      // Get the response text regardless of status
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+  
       if (!response.ok) {
-        throw new Error('Failed to add to cart');
+        throw new Error(`Failed to add to cart: ${responseText}`);
       }
   
-      const data = await response.json();
+      // Try to parse the response as JSON
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Failed to parse response as JSON:', e);
+        throw new Error('Invalid response format');
+      }
+  
       console.log('Add to cart response:', data);
   
-      // Trigger multiple cart refresh events to ensure update
+      // Trigger cart refresh events
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:refresh', {
           bubbles: true
         })
       );
   
-      // Also trigger cart:update event (some themes use this)
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:update', {
           bubbles: true
@@ -263,7 +278,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       // Force cart count update
       const cartCount = document.querySelector('.cart-count-bubble span');
       if (cartCount) {
-        // Get current cart data to ensure accurate count
         const cartResponse = await fetch('/cart.js');
         const cartData = await cartResponse.json();
         cartCount.textContent = cartData.item_count.toString();
