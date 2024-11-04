@@ -205,9 +205,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setIsAdding(true);
     try {
       // Check if variant.id exists, and extract the numeric ID if it's in GraphQL format
-      let numericVariantId = variant?.id?.startsWith('gid://shopify/ProductVariant/')
-        ? variant.id.split('/').pop()
-        : variant.id;
+      // Check if variant.id exists, and extract the numeric ID if it's in GraphQL format
+const numericVariantId = variant?.id?.startsWith('gid://shopify/ProductVariant/')
+  ? variant.id.split('/').pop()
+  : variant.id;
+
   
       // If numericVariantId is still undefined, handle it by providing a fallback or error message
       if (!numericVariantId) {
