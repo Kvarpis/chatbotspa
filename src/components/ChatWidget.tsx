@@ -207,7 +207,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         throw new Error('Invalid variant ID');
       }
   
-      // First add to cart with better error handling
+      // Add to cart using `/cart/add.js` directly
       const addToCartResponse = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -217,72 +217,43 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          items: [{ id: numericId, quantity: 1 }]
+          items: [{ id: parseInt(numericId, 10), quantity: 1 }]
         })
       });
   
-      // Log the raw response for debugging
-      const responseText = await addToCartResponse.text();
-      console.log('Raw add to cart response:', responseText);
-  
-      let addToCartData;
-      try {
-        addToCartData = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse response:', responseText);
-        throw new Error('Invalid response format from cart');
-      }
+      const addData = await addToCartResponse.json();
+      console.log('Add to cart response:', addData);
   
       if (!addToCartResponse.ok) {
-        throw new Error(addToCartData?.description || 'Failed to add to cart');
+        throw new Error(addData?.description || 'Failed to add to cart');
       }
   
-      // Show success notification
       showNotification(`${product.title} er lagt til i handlekurven`, 'success');
   
-      // Try to get updated cart data
-      try {
-        const cartResponse = await fetch('/cart.js', {
-          credentials: 'include',
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
-  
-        if (!cartResponse.ok) {
-          throw new Error('Failed to fetch cart data');
+      // Fetch updated cart data from `/cart.js`
+      const cartResponse = await fetch('/cart.js', {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
         }
+      });
   
-        const cartText = await cartResponse.text();
-        console.log('Raw cart response:', cartText);
+      const cartData = await cartResponse.json();
+      console.log('Cart data:', cartData);
   
-        const cartData = JSON.parse(cartText);
+      // Update cart UI with Dawn theme's built-in methods
+      const cartNotification = document.querySelector('cart-notification');
+if (cartNotification instanceof HTMLElement) {
+  cartNotification.classList.remove('animate', 'active');
+  void cartNotification.offsetWidth; // Trigger reflow
+  cartNotification.classList.add('animate', 'active');
+}
+
   
-        // Try to trigger Shopify's cart update
-        if (window.Shopify?.onCartUpdate) {
-          window.Shopify.onCartUpdate(cartData);
-        }
-  
-        // Update cart notification UI if it exists
-        const cartNotification = document.querySelector('cart-notification');
-        if (cartNotification instanceof HTMLElement) {
-          cartNotification.classList.remove('animate', 'active');
-          // Force reflow
-          void cartNotification.offsetWidth;
-          cartNotification.classList.add('animate', 'active');
-        }
-  
-        // Refresh the page sections if needed
-        document.documentElement.dispatchEvent(
-          new CustomEvent('cart:refresh', {
-            bubbles: true,
-            detail: { source: 'product-form' }
-          })
-        );
-  
-      } catch (cartError) {
-        console.error('Cart update error:', cartError);
-        // Continue since the item was added successfully
+      // Update cart count if it exists
+      const cartCount = document.querySelector('.cart-count-bubble span');
+      if (cartCount) {
+        cartCount.textContent = cartData.item_count;
       }
   
       setIsAdded(true);
@@ -297,7 +268,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     } finally {
       setIsAdding(false);
     }
-  };
+  };  
   
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
