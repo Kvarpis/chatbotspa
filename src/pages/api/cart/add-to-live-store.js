@@ -66,10 +66,10 @@ export default async function handler(req, res) {
       throw new Error(addToCartData.description || 'Failed to add to cart');
     }
 
-    // Forward cookies from Shopify
-    const shopifyCookies = addToCartResponse.headers.raw()['set-cookie'];
+    // Safely handle Shopify's Set-Cookie headers
+    const shopifyCookies = addToCartResponse.headers.get('set-cookie');
     if (shopifyCookies) {
-      shopifyCookies.forEach(cookie => res.setHeader('Set-Cookie', cookie));
+      res.setHeader('Set-Cookie', shopifyCookies);
     }
 
     // Now get cart data
