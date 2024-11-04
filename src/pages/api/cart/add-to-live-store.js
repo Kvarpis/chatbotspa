@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       numericId = variantId;
     }
 
-    // Add debug logging
+    // Debug logging
     console.log('Original variant ID:', variantId);
     console.log('Extracted numeric ID:', numericId);
 
@@ -35,17 +35,15 @@ export default async function handler(req, res) {
     const finalId = parseInt(numericId, 10);
     console.log('Final numeric ID for cart:', finalId);
 
-    // Prepare cart request body
+    // Prepare add to cart request
     const cartBody = {
       items: [{
         id: finalId,
         quantity: parseInt(quantity, 10)
-      }],
-      sections: "cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer",
-      sections_url: "/cart"
+      }]
     };
 
-    console.log('Cart request body:', JSON.stringify(cartBody, null, 2));
+    console.log('Add to cart request body:', JSON.stringify(cartBody, null, 2));
 
     // Add to cart
     const addToCartResponse = await fetch(`https://${shopifyDomain}/cart/add.js`, {
@@ -80,7 +78,19 @@ export default async function handler(req, res) {
       res.setHeader('Set-Cookie', shopifyCookies);
     }
 
-    // Get updated cart data
+    // Get sections data
+    const sectionsResponse = await fetch(`https://${shopifyDomain}/cart?sections=cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer`, {
+      headers: {
+        'Accept': '*/*',
+        'Cookie': req.headers.cookie || '',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+
+    const sectionsData = await sectionsResponse.text();
+    console.log('Sections response:', sectionsData);
+
+    // Get updated cart
     const cartResponse = await fetch(`https://${shopifyDomain}/cart.js`, {
       headers: {
         'Accept': 'application/json',
@@ -89,13 +99,23 @@ export default async function handler(req, res) {
       }
     });
 
-    const cartData = await cartResponse.json();
+    if (!cartResponse.ok) {
+      throw new Error('Failed to fetch cart');
+    }
 
-    // Return response with sections data
+    const cartData = await cartResponse.json();
+    console.log('Cart data:', cartData);
+
+    // Return final response
     return res.status(200).json({
       success: true,
       cart: cartData,
-      sections: addToCartData.sections || {},
+      sections: {
+        'cart-items': sectionsData,
+        'cart-icon-bubble': sectionsData,
+        'cart-live-region-text': sectionsData,
+        'cart-drawer': sectionsData
+      },
       checkoutUrl: `https://${shopifyDomain}/cart`,
       totalQuantity: cartData.item_count
     });
