@@ -209,25 +209,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
-    console.log("Raw variant ID received:", variantId);
+    console.log("Attempting to add variant:", variantId);
     
-    // Extract numeric ID from the `gid://` format
-    const numericVariantId = variantId.split('/').pop();
-    console.log("Extracted numeric ID:", numericVariantId);
-    
-    if (!numericVariantId) {
-      console.error("Invalid variant ID format");
-      return;
-    }
-  
     setIsAdding(true);
     try {
-      // Log the exact request we're about to make
+      // Use the exact same structure that worked in the console
       const requestBody = {
         form_type: 'product',
         utf8: '✓',
-        id: parseInt(numericVariantId, 10),
-        quantity: quantity,
+        id: 49285871534370, // Using the direct ID number
+        quantity: 1,
         sections: 'cart-drawer,cart-icon-bubble'
       };
       console.log('Sending request with body:', requestBody);
@@ -243,45 +234,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         body: JSON.stringify(requestBody)
       });
   
-      // Get the response text regardless of status
+      // Log the raw response
       const responseText = await response.text();
       console.log('Raw response:', responseText);
   
       if (!response.ok) {
+        console.error('Response not OK:', response.status, responseText);
         throw new Error(`Failed to add to cart: ${responseText}`);
       }
   
-      // Try to parse the response as JSON
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error('Failed to parse response as JSON:', e);
-        throw new Error('Invalid response format');
-      }
-  
+      // Try to parse the response
+      const data = JSON.parse(responseText);
       console.log('Add to cart response:', data);
   
-      // Trigger cart refresh events
+      // Trigger cart refresh
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:refresh', {
           bubbles: true
         })
       );
-  
-      document.documentElement.dispatchEvent(
-        new CustomEvent('cart:update', {
-          bubbles: true
-        })
-      );
-  
-      // Force cart count update
-      const cartCount = document.querySelector('.cart-count-bubble span');
-      if (cartCount) {
-        const cartResponse = await fetch('/cart.js');
-        const cartData = await cartResponse.json();
-        cartCount.textContent = cartData.item_count.toString();
-      }
   
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
