@@ -195,77 +195,71 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
-    fetch('/cart/add.js', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        items: [{ id: variantId, quantity }]
-      })
-    })
-      .then(async response => {
-        // Check if the response is OK and has content
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Add to cart failed: ${errorText}`);
-        }
-        
-        // Attempt to parse JSON safely
-        try {
-          return await response.json();
-        } catch (err) {
-          throw new Error('Failed to parse add to cart response as JSON');
-        }
-      })
-      .then(addData => {
-        console.log('Add to cart response:', addData);
+    console.log("Attempting to add to cart:", { variantId, quantity }); // Log input
   
-        // Fetch updated cart data
-        return fetch('/cart.js', {
-          credentials: 'include',
-          headers: { 'Accept': 'application/json' }
-        });
-      })
-      .then(async response => {
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Cart data fetch failed: ${errorText}`);
-        }
+    setIsAdding(true);
+    try {
+      const response = await fetch('/cart/add.js', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          items: [{ id: variantId, quantity }]
+        })
+      });
   
-        try {
-          return await response.json();
-        } catch (err) {
-          throw new Error('Failed to parse cart data as JSON');
-        }
-      })
-      .then(cartData => {
-        console.log('Cart data:', cartData);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Add to cart failed:", errorText); // Detailed error log
+        throw new Error(`Add to cart failed: ${errorText}`);
+      }
   
-        // Update cart notification
-        const cartNotification = document.querySelector('cart-notification');
-        if (cartNotification) {
-          const event = new CustomEvent('cart:updated', { detail: { cart: cartData } });
-          document.documentElement.dispatchEvent(event);
+      const addData = await response.json();
+      console.log("Add to cart response:", addData); // Log response data
   
-          (cartNotification as HTMLElement).classList.remove('animate', 'active');
-          void (cartNotification as HTMLElement).offsetWidth; // Trigger reflow
-          (cartNotification as HTMLElement).classList.add('animate', 'active');
-        }
+      const cartResponse = await fetch('/cart.js', {
+        credentials: 'include',
+        headers: { 'Accept': 'application/json' }
+      });
   
-        // Update cart count if it exists
-        const cartCount = document.querySelector('.cart-count-bubble span');
-        if (cartCount) {
-          cartCount.textContent = cartData.item_count;
-        }
-      })
-      .catch(error => console.error('Error:', error));
+      if (!cartResponse.ok) {
+        const errorText = await cartResponse.text();
+        console.error("Failed to fetch updated cart:", errorText); // Detailed error log
+        throw new Error(`Cart fetch failed: ${errorText}`);
+      }
+  
+      const cartData = await cartResponse.json();
+      console.log("Updated cart data:", cartData); // Log updated cart data
+  
+      // Update cart notification UI
+      const cartNotification = document.querySelector('cart-notification');
+      if (cartNotification) {
+        const event = new CustomEvent('cart:updated', { detail: { cart: cartData } });
+        document.documentElement.dispatchEvent(event);
+        cartNotification.classList.remove('animate', 'active');
+        void (cartNotification as HTMLElement).offsetWidth; // Trigger reflow
+        cartNotification.classList.add('animate', 'active');
+      }
+
+      const cartCount = document.querySelector('.cart-count-bubble span');
+      if (cartCount) {
+        cartCount.textContent = cartData.item_count;
+      }
+  
+      setIsAdded(true);
+      setTimeout(() => setIsAdded(false), 2000); // Show added feedback
+    } catch (error) {
+      console.error("Error during add to cart process:", error); // Catch any thrown errors
+      showNotification("Failed to add item to cart", "error");
+    } finally {
+      setIsAdding(false); // Reset adding state
+    }
   };
   
-   
   
   return (
     <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
