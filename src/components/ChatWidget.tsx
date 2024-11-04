@@ -217,7 +217,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       const requestBody = {
         form_type: 'product',
         utf8: '✓',
-        id: 49285871534370, // Using the direct ID number
+        id: 49285874319650, // Using the direct ID number
         quantity: 1,
         sections: 'cart-drawer,cart-icon-bubble'
       };
