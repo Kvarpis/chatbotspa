@@ -95,6 +95,20 @@ interface Product {
   available?: boolean;
 }
 
+interface ShopifyWindow extends Window {
+  Shopify?: ShopifyGlobal;
+}
+
+interface ShopifyGlobal {
+  routes?: {
+    root: string;
+    cart_add_url: string;
+    cart_change_url: string;
+    cart_update_url: string;
+    cart_url: string;
+    predictive_search_url: string;
+  };
+}
 
 // Constants
 const CONFIG: Config = {
@@ -208,37 +222,52 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
     setIsAdding(true);
     try {
-      const formData = new FormData();
-      formData.append('form_type', 'product');
-      formData.append('utf8', '✓');
-      formData.append('id', numericVariantId);
-      formData.append('quantity', quantity.toString());
-      formData.append('sections', 'cart-drawer');
-  
-      // Use a fallback URL if Shopify routes are not defined
-      const cartUrl = (window as any).Shopify?.routes?.root 
-        ? `${(window as any).Shopify.routes.root}cart/add.js`
-        : '/cart/add.js';
-  
-      const response = await fetch(cartUrl, {
+      const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'same-origin',
-        body: formData
+        body: JSON.stringify({
+          form_type: 'product',
+          utf8: '✓',
+          id: parseInt(numericVariantId, 10),
+          quantity: quantity,
+          sections: 'cart-drawer,cart-icon-bubble'
+        })
       });
   
       if (!response.ok) {
         throw new Error('Failed to add to cart');
       }
   
-      // Trigger cart drawer open
+      const data = await response.json();
+      console.log('Add to cart response:', data);
+  
+      // Trigger multiple cart refresh events to ensure update
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:refresh', {
           bubbles: true
         })
       );
+  
+      // Also trigger cart:update event (some themes use this)
+      document.documentElement.dispatchEvent(
+        new CustomEvent('cart:update', {
+          bubbles: true
+        })
+      );
+  
+      // Force cart count update
+      const cartCount = document.querySelector('.cart-count-bubble span');
+      if (cartCount) {
+        // Get current cart data to ensure accurate count
+        const cartResponse = await fetch('/cart.js');
+        const cartData = await cartResponse.json();
+        cartCount.textContent = cartData.item_count.toString();
+      }
   
       setIsAdded(true);
       setTimeout(() => setIsAdded(false), 2000);
