@@ -34,6 +34,15 @@ export default async function handler(req, res) {
     const finalId = parseInt(numericId, 10);
     console.log('Final numeric ID for cart:', finalId);
 
+    // Log payload
+    const payload = {
+      items: [{
+        id: finalId,
+        quantity: parseInt(quantity, 10)
+      }]
+    };
+    console.log("Payload for add.js:", JSON.stringify(payload));
+
     // First add item to cart without sections
     const addToCartResponse = await fetch(`https://${shopifyDomain}/cart/add.js`, {
       method: 'POST',
@@ -43,12 +52,7 @@ export default async function handler(req, res) {
         'Cookie': req.headers.cookie || '',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify({
-        items: [{
-          id: finalId,
-          quantity: parseInt(quantity, 10)
-        }]
-      })
+      body: JSON.stringify(payload)
     });
 
     const addToCartText = await addToCartResponse.text();
@@ -66,7 +70,7 @@ export default async function handler(req, res) {
       throw new Error(addToCartData.description || 'Failed to add to cart');
     }
 
-    // Safely handle Shopify's Set-Cookie headers
+    // Forward cookies from Shopify
     const shopifyCookies = addToCartResponse.headers.get('set-cookie');
     if (shopifyCookies) {
       res.setHeader('Set-Cookie', shopifyCookies);
@@ -86,29 +90,12 @@ export default async function handler(req, res) {
     }
 
     const cartData = await cartResponse.json();
+    console.log('Updated cart data:', cartData);
 
-    // Get section data
-    const sectionsResponse = await fetch(`https://${shopifyDomain}/cart?view=ajax`, {
-      headers: {
-        'Accept': '*/*',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': req.headers.cookie || ''
-      }
-    });
-
-    const sectionsHtml = await sectionsResponse.text();
-
-    // Return success response with all data
+    // Return success response with updated cart data
     return res.status(200).json({
       success: true,
       cart: cartData,
-      sections: {
-        'cart-items': sectionsHtml,
-        'cart-icon-bubble': sectionsHtml,
-        'cart-live-region-text': sectionsHtml,
-        'cart-drawer': sectionsHtml
-      },
-      checkoutUrl: `https://${shopifyDomain}/cart`,
       totalQuantity: cartData.item_count
     });
 
