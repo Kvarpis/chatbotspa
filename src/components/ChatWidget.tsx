@@ -194,7 +194,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = async (variantId: string, quantity: number = 1) => {
     fetch('/cart/add.js', {
       method: 'POST',
       headers: {
@@ -204,10 +204,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       },
       credentials: 'include',
       body: JSON.stringify({
-        items: [{ id: 49285870715170, quantity: 1 }]
+        items: [{ id: variantId, quantity }]
       })
     })
-      .then(response => response.json())
+      .then(async response => {
+        // Check if the response is OK and has content
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Add to cart failed: ${errorText}`);
+        }
+        
+        // Attempt to parse JSON safely
+        try {
+          return await response.json();
+        } catch (err) {
+          throw new Error('Failed to parse add to cart response as JSON');
+        }
+      })
       .then(addData => {
         console.log('Add to cart response:', addData);
   
@@ -217,7 +230,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           headers: { 'Accept': 'application/json' }
         });
       })
-      .then(response => response.json())
+      .then(async response => {
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Cart data fetch failed: ${errorText}`);
+        }
+  
+        try {
+          return await response.json();
+        } catch (err) {
+          throw new Error('Failed to parse cart data as JSON');
+        }
+      })
       .then(cartData => {
         console.log('Cart data:', cartData);
   
@@ -226,12 +250,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         if (cartNotification) {
           const event = new CustomEvent('cart:updated', { detail: { cart: cartData } });
           document.documentElement.dispatchEvent(event);
-          cartNotification.classList.remove('animate', 'active');
+  
+          (cartNotification as HTMLElement).classList.remove('animate', 'active');
           void (cartNotification as HTMLElement).offsetWidth; // Trigger reflow
-          cartNotification.classList.add('animate', 'active');
+          (cartNotification as HTMLElement).classList.add('animate', 'active');
         }
-
-        // Update cart count
+  
+        // Update cart count if it exists
         const cartCount = document.querySelector('.cart-count-bubble span');
         if (cartCount) {
           cartCount.textContent = cartData.item_count;
@@ -239,6 +264,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       })
       .catch(error => console.error('Error:', error));
   };
+  
    
   
   return (
@@ -286,9 +312,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
           <div className="mt-2 flex justify-end">
             <button
-              onClick={(e) => {
-                e.preventDefault();
-                handleAddToCart();
+              onClick={() => {
+                handleAddToCart(variant.id); // Changed to pass product.id instead of product
               }}
               disabled={isAdding || !isAvailable}
               className={`
