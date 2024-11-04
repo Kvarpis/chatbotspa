@@ -222,30 +222,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
     setIsAdding(true);
     try {
-      // Create form data
-      const formData = new URLSearchParams();
-      formData.append('id', numericVariantId);
-      formData.append('quantity', quantity.toString());
-
-      console.log('Sending request with data:', {
-        id: numericVariantId,
-        quantity: quantity
-      });
-
-      const response = await fetch('/cart/add', {
+      const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Requested-With': 'XMLHttpRequest'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
-        body: formData.toString()
+        body: JSON.stringify({
+          items: [{
+            id: parseInt(numericVariantId, 10),
+            quantity: quantity
+          }]
+        })
       });
 
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
+      const data = await response.json();
+      console.log('Add to cart response:', data);
 
-      if (!response.ok) {
-        throw new Error(`Failed to add to cart: ${responseText}`);
+      if (!data.items || data.items.length === 0) {
+        throw new Error('Failed to add to cart');
       }
 
       // Try to open cart drawer if it exists
@@ -260,6 +255,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           bubbles: true
         })
       );
+
+      // Update cart count if element exists
+      const cartCount = document.querySelector('.cart-count-bubble span');
+      if (cartCount && data.items) {
+        const totalQuantity = data.items.reduce((sum: number, item: any) => sum + item.quantity, 0);
+        cartCount.textContent = totalQuantity.toString();
+      }
 
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
