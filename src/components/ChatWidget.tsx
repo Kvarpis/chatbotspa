@@ -221,8 +221,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       return;
     }
 
+    console.log("Numeric variant ID:", numericVariantId); // Debug log
+
     setIsAdding(true);
     try {
+      // First try to verify the variant exists
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
@@ -235,7 +238,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           form_type: 'product',
           utf8: '✓',
           id: parseInt(numericVariantId, 10),
-          quantity: quantity,
+          quantity: 1,
           sections: 'cart-drawer,cart-icon-bubble'
         })
       });
@@ -244,11 +247,36 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       console.log('Raw response:', responseText);
 
       if (!response.ok) {
-        throw new Error(`Failed to add to cart: ${responseText}`);
-      }
+        // Try alternative format
+        const alternativeResponse = await fetch('/cart/add.js', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            items: [{
+              id: parseInt(numericVariantId, 10),
+              quantity: 1
+            }]
+          })
+        });
 
-      const data = JSON.parse(responseText);
-      console.log('Add to cart response:', data);
+        const altResponseText = await alternativeResponse.text();
+        console.log('Alternative response:', altResponseText);
+
+        if (!alternativeResponse.ok) {
+          throw new Error(`Failed to add to cart: ${altResponseText}`);
+        }
+
+        const altData = JSON.parse(altResponseText);
+        console.log('Alternative add to cart response:', altData);
+      } else {
+        const data = JSON.parse(responseText);
+        console.log('Add to cart response:', data);
+      }
 
       // Trigger cart refresh
       document.documentElement.dispatchEvent(
@@ -257,9 +285,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         })
       );
 
+      // Also try to trigger the cart drawer directly
+      const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
+      if (cartDrawerTrigger instanceof HTMLElement) {
+        cartDrawerTrigger.click();
+      }
+
       setIsAdded(true);
-      setTimeout(() => setIsAdded(false), 2000);
       showNotification(TRANSLATIONS.added, "success");
+      setTimeout(() => setIsAdded(false), 2000);
 
     } catch (error) {
       console.error("Error during add to cart process:", error);
