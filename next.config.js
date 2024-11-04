@@ -32,19 +32,12 @@ const nextConfig = {
   async headers() {
     const headers = [
       {
+        // Headers for API routes
         source: '/api/:path*',
         headers: [
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { 
-            key: 'Access-Control-Allow-Origin', 
-            value: process.env.NODE_ENV === 'development' 
-              ? '*' 
-              : 'https://seacretspano.myshopify.com'
-          },
-          { 
-            key: 'Access-Control-Allow-Methods', 
-            value: 'GET,DELETE,PATCH,POST,PUT,OPTIONS'
-          },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT,OPTIONS' },
           { 
             key: 'Access-Control-Allow-Headers', 
             value: [
@@ -62,32 +55,28 @@ const nextConfig = {
               'X-Shopify-Access-Token',
               'Shopify-Storefront-Private-Token'
             ].join(', ')
-          },
-          // Add security headers
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          {
-            key: 'Content-Security-Policy',
-            value: `
-              default-src 'self';
-              script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.shopify.com;
-              style-src 'self' 'unsafe-inline' https://cdn.shopify.com;
-              img-src 'self' data: https://cdn.shopify.com;
-              connect-src 'self' https://*.myshopify.com;
-              frame-ancestors 'self' https://*.myshopify.com;
-            `.replace(/\s+/g, ' ').trim()
           }
         ]
       },
-      // Add headers for static files
       {
-        source: '/:path*',
+        // Headers for the embed page
+        source: '/',
         headers: [
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
-          { key: 'X-XSS-Protection', value: '1; mode=block' },
-        ],
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://*.myshopify.com http://localhost:* https://*.vercel.app" },
+          { key: 'X-Frame-Options', value: 'ALLOWALL' }
+        ]
+      },
+      {
+        // Headers for embed.js
+        source: '/embed.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+          { key: 'Expires', value: '0' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Content-Type', value: 'application/javascript' }
+        ]
       }
     ];
 
@@ -99,7 +88,7 @@ const nextConfig = {
     cookieOptions: {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      sameSite: 'none',
       path: '/',
       maxAge: 60 * 60 * 24 * 7, // 7 days
     },
@@ -115,23 +104,19 @@ const nextConfig = {
     isDevelopment: process.env.NODE_ENV === 'development',
   },
 
-  // API route handling
+  // Rewrite rules
   async rewrites() {
     return [
       {
         source: '/api/:path*',
         destination: '/api/:path*',
+      },
+      {
+        source: '/embed.js',
+        destination: '/api/embed.js',
       }
     ];
-  },
-
-  // Development configuration
-  ...(process.env.NODE_ENV === 'development' && {
-    webpack: (config) => {
-      config.devtool = 'source-map';
-      return config;
-    },
-  })
+  }
 };
 
 module.exports = nextConfig;
