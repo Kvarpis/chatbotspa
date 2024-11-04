@@ -313,7 +313,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           <div className="mt-2 flex justify-end">
             <button
               onClick={() => {
-                handleAddToCart(variant.id); // Changed to pass product.id instead of product
+                if (variant?.id) {
+                  handleAddToCart(variant.id); // Ensures that variant.id exists before calling the function
+                } else {
+                  console.error("No valid variant ID available.");
+                }
               }}
               disabled={isAdding || !isAvailable}
               className={`
