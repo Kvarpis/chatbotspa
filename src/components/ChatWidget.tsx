@@ -224,11 +224,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     try {
       // Create form data
       const formData = new URLSearchParams();
-      formData.append('form_type', 'product');
-      formData.append('utf8', '✓');
       formData.append('id', numericVariantId);
       formData.append('quantity', quantity.toString());
-      formData.append('sections', 'cart-drawer,cart-icon-bubble');
+
+      console.log('Sending request with data:', {
+        id: numericVariantId,
+        quantity: quantity
+      });
 
       const response = await fetch('/cart/add', {
         method: 'POST',
@@ -239,21 +241,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         body: formData.toString()
       });
 
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Add to cart failed:', errorText);
-        throw new Error('Failed to add to cart');
-      }
-
-      // Get updated cart data
-      const cartResponse = await fetch('/cart.js');
-      const cartData = await cartResponse.json();
-      console.log('Updated cart:', cartData);
-
-      // Update cart UI
-      const cartCount = document.querySelector('.cart-count-bubble span');
-      if (cartCount) {
-        cartCount.textContent = cartData.item_count.toString();
+        throw new Error(`Failed to add to cart: ${responseText}`);
       }
 
       // Try to open cart drawer if it exists
