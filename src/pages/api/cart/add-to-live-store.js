@@ -1,4 +1,4 @@
-// File 1: src/pages/api/cart/add-to-live-store.js
+// src/pages/api/cart/add-to-live-store.js
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -15,20 +15,37 @@ export default async function handler(req, res) {
 
     // Extract numeric ID from GraphQL ID
     let numericId;
-    if (variantId.includes('ProductVariant/')) {
-      numericId = variantId.split('ProductVariant/')[1];
+    if (variantId.includes('gid://shopify/ProductVariant/')) {
+      numericId = variantId.split('gid://shopify/ProductVariant/')[1];
     } else if (variantId.includes('/')) {
       numericId = variantId.split('/').pop();
     } else {
       numericId = variantId;
     }
 
+    // Add debug logging
+    console.log('Original variant ID:', variantId);
+    console.log('Extracted numeric ID:', numericId);
+
     // Validate numeric ID
     if (!numericId || isNaN(parseInt(numericId, 10))) {
       throw new Error(`Invalid variant ID: ${variantId}`);
     }
 
-    console.log('Adding to cart with numeric ID:', numericId);
+    const finalId = parseInt(numericId, 10);
+    console.log('Final numeric ID for cart:', finalId);
+
+    // Prepare cart request body
+    const cartBody = {
+      items: [{
+        id: finalId,
+        quantity: parseInt(quantity, 10)
+      }],
+      sections: "cart-items,cart-icon-bubble,cart-live-region-text,cart-drawer",
+      sections_url: "/cart"
+    };
+
+    console.log('Cart request body:', JSON.stringify(cartBody, null, 2));
 
     // Add to cart
     const addToCartResponse = await fetch(`https://${shopifyDomain}/cart/add.js`, {
@@ -39,12 +56,7 @@ export default async function handler(req, res) {
         'Cookie': req.headers.cookie || '',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify({
-        items: [{
-          id: parseInt(numericId, 10),
-          quantity: parseInt(quantity, 10)
-        }]
-      })
+      body: JSON.stringify(cartBody)
     });
 
     const addToCartText = await addToCartResponse.text();
@@ -68,23 +80,7 @@ export default async function handler(req, res) {
       res.setHeader('Set-Cookie', shopifyCookies);
     }
 
-    // Get sections data
-    const sections = ['cart-items', 'cart-icon-bubble', 'cart-live-region-text', 'cart-drawer'];
-    const sectionsPromises = sections.map(section =>
-      fetch(`https://${shopifyDomain}?section_id=${section}`, {
-        headers: {
-          'Accept': 'text/html',
-          'Cookie': req.headers.cookie || '',
-        }
-      }).then(response => response.text())
-    );
-
-    const sectionsData = await Promise.all(sectionsPromises);
-    const sectionsMap = Object.fromEntries(
-      sections.map((section, index) => [section, sectionsData[index]])
-    );
-
-    // Get updated cart
+    // Get updated cart data
     const cartResponse = await fetch(`https://${shopifyDomain}/cart.js`, {
       headers: {
         'Accept': 'application/json',
@@ -95,10 +91,11 @@ export default async function handler(req, res) {
 
     const cartData = await cartResponse.json();
 
+    // Return response with sections data
     return res.status(200).json({
       success: true,
       cart: cartData,
-      sections: sectionsMap,
+      sections: addToCartData.sections || {},
       checkoutUrl: `https://${shopifyDomain}/cart`,
       totalQuantity: cartData.item_count
     });
