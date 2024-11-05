@@ -228,13 +228,49 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setIsAdding(true);
     
     try {
-      const response = await fetch('/cart/add.js', {
+      // Check if we're in an iframe
+      const isIframe = window.self !== window.top;
+      console.log("Is in iframe:", isIframe);
+  
+      // Get the shop domain
+      const shopDomain = window.location.hostname;
+      console.log("Shop domain:", shopDomain);
+  
+      // Construct the proper URL based on context
+      const cartUrl = isIframe ? `https://${shopDomain}/cart/add.js` : '/cart/add.js';
+      console.log("Using cart URL:", cartUrl);
+  
+      // Get CSRF token if it exists
+      const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
+      
+      const response = await fetch(cartUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(csrfToken && { 'X-CSRF-Token': csrfToken })
+        },
+        body: JSON.stringify({
+          items: [{
+            id: numericId,
+            quantity: quantity
+          }]
+        })
+      });
+  
+      // Log the full request details for debugging
+      console.log('Request details:', {
+        url: cartUrl,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(csrfToken && { 'X-CSRF-Token': csrfToken })
         },
-        credentials: 'same-origin', // Added this from your console example
+        credentials: 'include',
         body: JSON.stringify({
           items: [{
             id: numericId,
@@ -244,6 +280,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       });
   
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
         throw new Error(`Failed to add item to cart: ${response.status}`);
       }
   
@@ -253,17 +295,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
   
-      // Update cart UI
-      document.documentElement.dispatchEvent(
-        new CustomEvent('cart:refresh', {
-          bubbles: true
-        })
-      );
+      // Update cart UI - if in iframe, need to message parent
+      if (isIframe) {
+        window.parent.postMessage({ type: 'cart:refresh' }, '*');
+      } else {
+        document.documentElement.dispatchEvent(
+          new CustomEvent('cart:refresh', {
+            bubbles: true
+          })
+        );
+      }
   
-      // Try to open cart drawer if it exists
-      const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
-      if (cartDrawerTrigger instanceof HTMLElement) {
-        cartDrawerTrigger.click();
+      // Try to open cart drawer if it exists and we're not in an iframe
+      if (!isIframe) {
+        const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
+        if (cartDrawerTrigger instanceof HTMLElement) {
+          cartDrawerTrigger.click();
+        }
       }
   
       setTimeout(() => setIsAdded(false), 2000);
