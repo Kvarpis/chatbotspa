@@ -223,18 +223,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       showNotification(TRANSLATIONS.error, "error");
       return;
     }
-
+  
     console.log("Extracted numeric ID:", numericId);
     setIsAdding(true);
     
     try {
-      // Exactly matching your working console example
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
+        credentials: 'same-origin', // Added this from your console example
         body: JSON.stringify({
           items: [{
             id: numericId,
@@ -242,37 +242,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           }]
         })
       });
-
-      // First log the raw response for debugging
-      const text = await response.text();
-      console.log('Raw response:', text);
-
-      // Then parse it as JSON if there's content
-      const data = text ? JSON.parse(text) : null;
-      console.log('Parsed response:', data);
-
-      if (!response.ok || !data) {
+  
+      if (!response.ok) {
         throw new Error(`Failed to add item to cart: ${response.status}`);
       }
-
+  
+      const data = await response.json();
+      console.log('Add to cart response:', data);
+  
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
-
+  
       // Update cart UI
       document.documentElement.dispatchEvent(
         new CustomEvent('cart:refresh', {
           bubbles: true
         })
       );
-
+  
       // Try to open cart drawer if it exists
       const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
       if (cartDrawerTrigger instanceof HTMLElement) {
         cartDrawerTrigger.click();
       }
-
+  
       setTimeout(() => setIsAdded(false), 2000);
-
+  
     } catch (error) {
       console.error("Error adding to cart:", error instanceof Error ? error.message : 'Unknown error');
       showNotification(TRANSLATIONS.error, "error");
