@@ -21,46 +21,51 @@
         return cookies;
     }
 
-    // Ensure cart bubble exists and is visible
-    function ensureCartBubbleExists() {
-        const cartIcon = document.querySelector('.header__cart-icon, .cart-link, [data-cart-trigger]');
-        if (!cartIcon) return;
-
-        let bubble = cartIcon.querySelector('.cart-count-bubble');
-        if (!bubble) {
-            bubble = document.createElement('div');
-            bubble.className = 'cart-count-bubble';
-            const span = document.createElement('span');
-            span.setAttribute('aria-hidden', 'true');
-            bubble.appendChild(span);
-            cartIcon.appendChild(bubble);
-        }
-
-        bubble.style.display = 'flex';
-        return bubble;
-    }
-
     // Function to update cart count UI
     function updateCartCountUI(count) {
-        // Ensure the bubble exists
-        const bubble = ensureCartBubbleExists();
-        
-        // Update all possible cart count elements
+        // Handle the main cart icon in header
+        const cartIcons = document.querySelectorAll('.header__cart-icon, .cart-link, [data-cart-trigger], [data-cart-icon-bubble]');
+        cartIcons.forEach(icon => {
+            let bubble = icon.querySelector('.cart-count-bubble');
+            if (!bubble) {
+                bubble = document.createElement('div');
+                bubble.className = 'cart-count-bubble';
+                const span = document.createElement('span');
+                span.setAttribute('aria-hidden', 'true');
+                bubble.appendChild(span);
+                icon.appendChild(bubble);
+            }
+
+            const span = bubble.querySelector('span');
+            if (span) {
+                span.textContent = count.toString();
+            }
+
+            // Force bubble visibility
+            bubble.style.display = count > 0 ? 'flex' : 'none';
+            bubble.style.opacity = '1';
+            bubble.style.visibility = 'visible';
+        });
+
+        // Update all cart count elements
         const cartCountElements = document.querySelectorAll([
             '.cart-count-bubble span',
             '.cart-count',
             '[data-cart-count]',
             '.js-cart-count',
             '[data-cart-item-count]',
-            '.cart__count'
+            '.cart__count',
+            '[data-cart-items-count]'
         ].join(','));
         
         cartCountElements.forEach(elem => {
             elem.textContent = count.toString();
-            // Make sure parent bubble is visible
-            const parentBubble = elem.closest('.cart-count-bubble');
-            if (parentBubble) {
-                parentBubble.style.display = 'flex';
+            // Force parent bubble visibility if it exists
+            const bubble = elem.closest('.cart-count-bubble');
+            if (bubble) {
+                bubble.style.display = count > 0 ? 'flex' : 'none';
+                bubble.style.opacity = '1';
+                bubble.style.visibility = 'visible';
             }
         });
 
@@ -70,6 +75,11 @@
             dawnCartCount.setAttribute('data-cart-count', count.toString());
             if (count > 0) {
                 dawnCartCount.classList.add('has-items');
+                const dawnBubble = dawnCartCount.querySelector('.cart-count-bubble');
+                if (dawnBubble) {
+                    dawnBubble.style.display = 'flex';
+                    dawnBubble.style.opacity = '1';
+                }
             }
         }
     }
