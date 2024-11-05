@@ -195,13 +195,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const variant = product.variants.edges[0]?.node;
   const isAvailable = variant?.availableForSale !== false;
-  
-  const formattedPrice = new Intl.NumberFormat('nb-NO', {
-    style: 'currency',
-    currency: product.priceRange.minVariantPrice.currencyCode || 'NOK',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(parseFloat(product.priceRange.minVariantPrice.amount || "0"));
 
   const showNotification = (message: string, type: 'success' | 'error') => {
     setNotification({ message, type });
@@ -209,18 +202,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (variantId: string, quantity: number = 1) => {
-    console.log("Attempting to add variant:", variantId);
-    
-    const numericVariantId = variantId.includes('gid://') 
-      ? variantId.split('/').pop() 
-      : variantId;
-      
-    if (!numericVariantId) {
-      console.error("Invalid variant ID format");
-      return;
-    }
-
+    console.log("Adding to cart with ID:", variantId); // Debug log
     setIsAdding(true);
+    
     try {
       const response = await fetch('/cart/add.js', {
         method: 'POST',
@@ -230,7 +214,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         },
         body: JSON.stringify({
           items: [{
-            id: parseInt(numericVariantId, 10),
+            id: variantId,
             quantity: quantity
           }]
         })
@@ -239,9 +223,19 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       const data = await response.json();
       console.log('Add to cart response:', data);
 
-      if (!data.items || data.items.length === 0) {
-        throw new Error('Failed to add to cart');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      setIsAdded(true);
+      showNotification(TRANSLATIONS.added, "success");
+
+      // Update cart UI
+      document.documentElement.dispatchEvent(
+        new CustomEvent('cart:refresh', {
+          bubbles: true
+        })
+      );
 
       // Try to open cart drawer if it exists
       const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
@@ -249,26 +243,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         cartDrawerTrigger.click();
       }
 
-      // Dispatch cart update event
-      document.documentElement.dispatchEvent(
-        new CustomEvent('cart:refresh', {
-          bubbles: true
-        })
-      );
-
-      // Update cart count if element exists
-      const cartCount = document.querySelector('.cart-count-bubble span');
-      if (cartCount && data.items) {
-        const totalQuantity = data.items.reduce((sum: number, item: any) => sum + item.quantity, 0);
-        cartCount.textContent = totalQuantity.toString();
-      }
-
-      setIsAdded(true);
-      showNotification(TRANSLATIONS.added, "success");
       setTimeout(() => setIsAdded(false), 2000);
 
     } catch (error) {
-      console.error("Error during add to cart process:", error);
+      console.error("Error adding to cart:", error);
       showNotification(TRANSLATIONS.error, "error");
     } finally {
       setIsAdding(false);
@@ -311,7 +289,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
               {product.title}
             </h3>
             <span className="font-medium text-gray-900 text-sm whitespace-nowrap">
-              {formattedPrice}
+              {product.priceRange?.minVariantPrice?.amount ? 
+                new Intl.NumberFormat('nb-NO', {
+                  style: 'currency',
+                  currency: product.priceRange.minVariantPrice.currencyCode || 'NOK'
+                }).format(parseFloat(product.priceRange.minVariantPrice.amount))
+              : '-'}
             </span>
           </div>
 
@@ -321,10 +304,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
           <div className="mt-2 flex justify-end">
           <button
-  onClick={() => {
-    if (variant?.id) {
-      console.log("Attempting to add variant:", variant.id); // Debug log
-      handleAddToCart(variant.id);
+        onClick={() => {
+          if (variant?.id) {
+            console.log("Variant ID before adding to cart:", variant.id); // Debug log
+            handleAddToCart(variant.id);
     } else {
       console.error("No valid variant ID available.");
     }
