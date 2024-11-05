@@ -21,6 +21,31 @@
         return cookies;
     }
 
+    // Function to update cart count UI
+    function updateCartCountUI(count) {
+        const cartCountElements = document.querySelectorAll([
+            '.cart-count-bubble span',
+            '.cart-count',
+            '[data-cart-count]',
+            '.js-cart-count',
+            '[data-cart-item-count]',
+            '.cart__count'
+        ].join(','));
+        
+        cartCountElements.forEach(elem => {
+            if (count === 0) {
+                elem.textContent = '0';
+                // Some themes hide the bubble when count is 0
+                const bubble = elem.closest('.cart-count-bubble');
+                if (bubble) {
+                    bubble.style.display = 'inline-flex';
+                }
+            } else {
+                elem.textContent = count.toString();
+            }
+        });
+    }
+
     // Enhanced cart update handler
     function handleCartUpdate(data) {
         fetch('/cart.js', {
@@ -34,18 +59,8 @@
         .then(cartData => {
             console.log('Current cart data:', cartData);
 
-            // Update all possible cart count elements
-            const cartCountElements = document.querySelectorAll([
-                '.cart-count-bubble span',
-                '.cart-count',
-                '[data-cart-count]',
-                '.js-cart-count',
-                '[data-cart-item-count]'
-            ].join(','));
-            
-            cartCountElements.forEach(elem => {
-                elem.textContent = cartData.item_count.toString();
-            });
+            // Update cart count UI
+            updateCartCountUI(cartData.item_count);
 
             // Trigger various cart update events
             if (window.Shopify) {
@@ -68,6 +83,14 @@
                         detail: cartData
                     })
                 );
+
+                // Dawn theme specific event
+                document.documentElement.dispatchEvent(
+                    new CustomEvent('count:update', {
+                        bubbles: true,
+                        detail: cartData.item_count
+                    })
+                );
             }
 
             // Try to open cart drawer using various selectors
@@ -75,7 +98,8 @@
                 '[data-cart-drawer-trigger]',
                 '[data-drawer-toggle="cart"]',
                 '.js-drawer-open-cart',
-                '[data-action="open-drawer"][data-drawer="cart"]'
+                '[data-action="open-drawer"][data-drawer="cart"]',
+                '.cart-link'
             ];
 
             for (const selector of cartDrawerTriggers) {
@@ -151,6 +175,9 @@
     iframe.onload = function() {
         iframe.style.opacity = '1';
         console.log('Chat widget loaded successfully');
+        
+        // Initialize cart count on load
+        handleCartUpdate();
         
         // Send initial session data
         iframe.contentWindow.postMessage({
