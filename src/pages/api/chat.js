@@ -141,28 +141,7 @@ VIKTIG INFORMASJON OM SEACRET SPA:
   * Telefon: 91594152
   * E-post: runhild@cliniquer.no
 
-REGLER FOR SVAR:
-1. Maks 1-2 setninger for generelle spørsmål
-2. Unngå lange forklaringer
-3. For behandlinger, bruk nummerert format:
-   1. Behandling (pris)
-   2. Behandling (pris)
-
-SVAREKSEMPLER:
-Bruker: "Jeg har tørr hud"
-Svar: "PRODUCT_REQUEST:fuktighetskrem"
-
-Bruker: "Når er dere åpne?"
-Svar: "Vi holder til i Olsrød Park og du kan nå oss på 91594152 for timebestilling."
-
-Bruker: "Hvilke ansiktsbehandlinger har dere?"
-Svar: "Vi tilbyr følgende ansiktsbehandlinger:
-1. Signaturbehandling (1650 kr)
-2. Classic (1150 kr)
-3. Peeling Marine (1150 kr)
-4. Lunch-Behandling (880 kr)"
-
-BEHANDLINGER:
+BEHANDLINGERR:
 
 Medisinsk:
 - Konsultasjon kosmetisk sykepleier
@@ -319,8 +298,31 @@ const handler = async function(req, res) {
     console.error('Handler error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message || 'En uventet feil oppstod'
+      error: error.message
     });
   }
 }
+
+return systemPrompt;
+}
+
+// Helper function to check if message is a product request using actual Shopify data
+async function isProductRequest(message) {
+  const metadata = await getShopifyMetadata();
+  const normalizedMessage = message.toLowerCase();
+  
+  // Common action words in Norwegian
+  const actionTerms = ['vis', 'se', 'kjøpe', 'bestille', 'flere'];
+  
+  // Check if message contains any action terms
+  const hasActionTerm = actionTerms.some(term => normalizedMessage.includes(term));
+  
+  // Check if message contains any product-related terms from Shopify
+  const hasProductTerm = [
+    ...metadata.searchTerms.vendors,
+    ...metadata.searchTerms.productTypes,
+    ...metadata.searchTerms.tags
+  ].some(term => normalizedMessage.includes(term.toLowerCase()));
+
+  return hasActionTerm || hasProductTerm;
 }
