@@ -21,8 +21,31 @@
         return cookies;
     }
 
+    // Ensure cart bubble exists and is visible
+    function ensureCartBubbleExists() {
+        const cartIcon = document.querySelector('.header__cart-icon, .cart-link, [data-cart-trigger]');
+        if (!cartIcon) return;
+
+        let bubble = cartIcon.querySelector('.cart-count-bubble');
+        if (!bubble) {
+            bubble = document.createElement('div');
+            bubble.className = 'cart-count-bubble';
+            const span = document.createElement('span');
+            span.setAttribute('aria-hidden', 'true');
+            bubble.appendChild(span);
+            cartIcon.appendChild(bubble);
+        }
+
+        bubble.style.display = 'flex';
+        return bubble;
+    }
+
     // Function to update cart count UI
     function updateCartCountUI(count) {
+        // Ensure the bubble exists
+        const bubble = ensureCartBubbleExists();
+        
+        // Update all possible cart count elements
         const cartCountElements = document.querySelectorAll([
             '.cart-count-bubble span',
             '.cart-count',
@@ -33,17 +56,22 @@
         ].join(','));
         
         cartCountElements.forEach(elem => {
-            if (count === 0) {
-                elem.textContent = '0';
-                // Some themes hide the bubble when count is 0
-                const bubble = elem.closest('.cart-count-bubble');
-                if (bubble) {
-                    bubble.style.display = 'inline-flex';
-                }
-            } else {
-                elem.textContent = count.toString();
+            elem.textContent = count.toString();
+            // Make sure parent bubble is visible
+            const parentBubble = elem.closest('.cart-count-bubble');
+            if (parentBubble) {
+                parentBubble.style.display = 'flex';
             }
         });
+
+        // Dawn theme specific updates
+        const dawnCartCount = document.querySelector('cart-icon-bubble');
+        if (dawnCartCount) {
+            dawnCartCount.setAttribute('data-cart-count', count.toString());
+            if (count > 0) {
+                dawnCartCount.classList.add('has-items');
+            }
+        }
     }
 
     // Enhanced cart update handler
@@ -69,28 +97,25 @@
                     window.Shopify.onCartUpdate(cartData);
                 }
 
-                // Trigger cart refresh event
-                document.documentElement.dispatchEvent(
-                    new CustomEvent('cart:refresh', {
-                        bubbles: true
-                    })
-                );
+                // Dawn theme specific section updates
+                if (window.Shopify.sections) {
+                    document.documentElement.dispatchEvent(
+                        new CustomEvent('cart:refresh', {
+                            bubbles: true,
+                            detail: { cart: cartData }
+                        })
+                    );
+                }
 
-                // Additional cart update event
-                document.documentElement.dispatchEvent(
-                    new CustomEvent('cart:update', {
-                        bubbles: true,
-                        detail: cartData
-                    })
-                );
-
-                // Dawn theme specific event
-                document.documentElement.dispatchEvent(
-                    new CustomEvent('count:update', {
-                        bubbles: true,
-                        detail: cartData.item_count
-                    })
-                );
+                // Additional cart update events
+                ['cart:update', 'cart:change', 'count:update'].forEach(eventName => {
+                    document.documentElement.dispatchEvent(
+                        new CustomEvent(eventName, {
+                            bubbles: true,
+                            detail: cartData
+                        })
+                    );
+                });
             }
 
             // Try to open cart drawer using various selectors
@@ -99,7 +124,8 @@
                 '[data-drawer-toggle="cart"]',
                 '.js-drawer-open-cart',
                 '[data-action="open-drawer"][data-drawer="cart"]',
-                '.cart-link'
+                '.cart-link',
+                '#cart-icon-bubble'
             ];
 
             for (const selector of cartDrawerTriggers) {
@@ -255,7 +281,6 @@
                     })
                     .catch(error => {
                         console.error('Error adding to cart:', error);
-                        // Send error message back to iframe
                         iframe.contentWindow.postMessage({
                             type: 'ADD_TO_CART_ERROR',
                             error: error.message
@@ -264,7 +289,6 @@
                     break;
 
                 default:
-                    // Handle expand/minimize
                     if (event.data === 'expand') {
                         iframe.style.width = config.expandedWidth;
                         iframe.style.height = config.expandedHeight;
