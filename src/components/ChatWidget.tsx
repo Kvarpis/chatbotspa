@@ -228,51 +228,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setIsAdding(true);
     
     try {
-      // Check if we're in an iframe
-      const isIframe = window.self !== window.top;
-      console.log("Is in iframe:", isIframe);
-  
-      // Use the correct Shopify domain
-      const shopDomain = 'seacretspano.myshopify.com';
-      console.log("Shop domain:", shopDomain);
-  
-      // Construct the proper URL with the correct domain
-      const cartUrl = `https://${shopDomain}/cart/add.js`;
-      console.log("Using cart URL:", cartUrl);
-  
-      const response = await fetch(cartUrl, {
+      // Using our backend API endpoint instead of directly calling Shopify
+      const response = await fetch('/api/cart/add', {
         method: 'POST',
-        credentials: 'include',
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Origin': 'https://chatbotspa.vercel.app'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          items: [{
-            id: numericId,
-            quantity: quantity
-          }]
+          variantId: numericId,
+          quantity: quantity
         })
       });
   
-      // Log the full request details for debugging
+      // Log the request details
       console.log('Request details:', {
-        url: cartUrl,
+        url: '/api/cart/add',
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Origin': 'https://chatbotspa.vercel.app'
-        },
-        credentials: 'include',
         body: JSON.stringify({
-          items: [{
-            id: numericId,
-            quantity: quantity
-          }]
+          variantId: numericId,
+          quantity: quantity
         })
       });
   
@@ -293,7 +267,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       showNotification(TRANSLATIONS.added, "success");
   
       // If in iframe, post message to parent for cart refresh
-      if (isIframe) {
+      if (window.self !== window.top) {
         try {
           window.parent.postMessage({
             type: 'CART_UPDATED',
@@ -308,7 +282,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         }
       }
   
-      // Set success state but don't redirect or reload
       setTimeout(() => setIsAdded(false), 2000);
   
     } catch (error) {
