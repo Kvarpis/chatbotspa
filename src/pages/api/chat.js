@@ -1,25 +1,39 @@
-// pages/api/chat.js
+// File: pages/api/chat.js
+// Replace the entire contents of your existing chat.js file with this code,
+// but KEEP your existing systemPrompt content in the buildSystemPrompt function
+
 import { Anthropic } from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-// Store shown products in memory
-const shownProductsCache = new Map();
-
-// Cache for Shopify metadata
-let metadataCache = {
-  data: null,
-  lastFetched: null,
-  timeout: 5 * 60 * 1000 // 5 minutes
+// Enhanced caching with type definitions
+const caches = {
+  metadata: {
+    data: null,
+    lastFetched: null,
+    timeout: 5 * 60 * 1000 // 5 minutes
+  },
+  products: {
+    data: null,
+    lastFetched: null,
+    timeout: 5 * 60 * 1000
+  }
 };
 
-// Cache for products
-let productsCache = {
-  data: null,
-  lastFetched: null,
-  timeout: 5 * 60 * 1000 // 5 minutes
+// Store shown products per session
+const shownProductsCache = new Map();
+
+// Enhanced product categories with semantic categorization
+const productCategories = {
+  'ansikt': ['ansiktspleie', 'face', 'facial', 'ansiktskrem', 'rens', 'serum', 'mask'],
+  'kropp': ['kroppspleie', 'body', 'body lotion', 'massasje', 'peeling'],
+  'thalgo': ['thalgo products', 'havpleie', 'marine', 'alger'],
+  'anti-age': ['anti-aging', 'rynker', 'anti-wrinkle', 'aldring', 'lifting'],
+  'fukt': ['hydrating', 'moisture', 'tørr hud', 'fuktighet', 'fuktighetskrem'],
+  'sensitiv': ['sensitive', 'følsom hud', 'rolig', 'beroligende'],
+  'acne': ['problemhud', 'uren hud', 'spots', 'akneplager']
 };
 
 // Fetch all relevant metadata from Shopify
@@ -110,19 +124,31 @@ async function fetchShopifyMetadata() {
 
     const data = await response.json();
     
-    // Get all unique vendors, types, and tags
+    // Enhanced metadata processing
     const vendors = new Set();
     const productTypes = new Set();
     const tags = new Set();
 
-    // Process and cache products
-    productsCache.data = data.data?.products?.edges.map(edge => {
+    // Process and categorize products
+    const products = data.data?.products?.edges.map(edge => {
       const node = edge.node;
       const variant = node.variants.edges[0]?.node;
 
+      // Track metadata
       if (node.vendor) vendors.add(node.vendor.toLowerCase());
       if (node.productType) productTypes.add(node.productType.toLowerCase());
       node.tags?.forEach(tag => tags.add(tag.toLowerCase()));
+
+      // Add category matching
+      const categories = Object.entries(productCategories)
+        .filter(([_, keywords]) =>
+          keywords.some(keyword =>
+            node.title.toLowerCase().includes(keyword) ||
+            node.description?.toLowerCase().includes(keyword) ||
+            node.tags?.some(tag => tag.toLowerCase().includes(keyword))
+          )
+        )
+        .map(([category]) => category);
       
       return {
         id: node.id,
@@ -132,6 +158,7 @@ async function fetchShopifyMetadata() {
         vendor: node.vendor,
         productType: node.productType,
         tags: node.tags || [],
+        categories,
         featuredImage: node.featuredImage ? {
           url: node.featuredImage.url,
           altText: node.featuredImage.altText || node.title
@@ -147,9 +174,12 @@ async function fetchShopifyMetadata() {
         collections: node.collections
       };
     }) || [];
-    productsCache.lastFetched = Date.now();
 
-    // Get only collections that have products
+    // Cache the products
+    caches.products.data = products;
+    caches.products.lastFetched = Date.now();
+
+    // Get collections with products
     const collections = data.data?.collections?.edges
       .filter(edge => edge.node.products.edges.length > 0)
       .map(edge => ({
@@ -159,7 +189,7 @@ async function fetchShopifyMetadata() {
         description: edge.node.description
       })) || [];
 
-    return {
+    const metadata = {
       collections,
       searchTerms: {
         vendors: Array.from(vendors),
@@ -167,52 +197,46 @@ async function fetchShopifyMetadata() {
         tags: Array.from(tags)
       }
     };
+
+    caches.metadata.data = metadata;
+    caches.metadata.lastFetched = Date.now();
+
+    return metadata;
   } catch (error) {
     console.error('Error fetching Shopify metadata:', error);
-    return {
-      collections: [],
-      searchTerms: {
-        vendors: [],
-        productTypes: [],
-        tags: []
-      }
-    };
+    throw error;
   }
 }
 
-// Function to get metadata with caching
+// Get metadata with caching
 async function getShopifyMetadata() {
   if (
-    !metadataCache.data || 
-    !metadataCache.lastFetched ||
-    Date.now() - metadataCache.lastFetched > metadataCache.timeout
+    !caches.metadata.data || 
+    !caches.metadata.lastFetched ||
+    Date.now() - caches.metadata.lastFetched > caches.metadata.timeout
   ) {
-    metadataCache.data = await fetchShopifyMetadata();
-    metadataCache.lastFetched = Date.now();
+    await fetchShopifyMetadata();
   }
-  return metadataCache.data;
+  return caches.metadata.data;
 }
 
-// Get all products (using cache)
+// Get all products with caching
 async function getAllProducts() {
   if (
-    !productsCache.data || 
-    !productsCache.lastFetched ||
-    Date.now() - productsCache.lastFetched > productsCache.timeout
+    !caches.products.data || 
+    !caches.products.lastFetched ||
+    Date.now() - caches.products.lastFetched > caches.products.timeout
   ) {
-    await fetchShopifyMetadata(); // This updates both metadata and products cache
+    await fetchShopifyMetadata();
   }
-  return productsCache.data || [];
+  return caches.products.data || [];
 }
 
 // Enhanced search function
 async function searchProducts(searchTerm, previousProducts = []) {
   try {
-    const [allProducts, metadata] = await Promise.all([
-      getAllProducts(),
-      getShopifyMetadata()
-    ]);
-
+    const allProducts = await getAllProducts();
+    
     if (!allProducts || allProducts.length === 0) {
       console.error('No products found in store');
       return [];
@@ -226,81 +250,82 @@ async function searchProducts(searchTerm, previousProducts = []) {
       .map(product => {
         let score = 0;
         
-        // Title match
-        if (product.title.toLowerCase().includes(normalizedSearchTerm)) {
-          score += 10;
-        }
+        // Direct matches
+        if (product.title.toLowerCase().includes(normalizedSearchTerm)) score += 10;
+        if (product.description?.toLowerCase().includes(normalizedSearchTerm)) score += 5;
+        if (product.vendor?.toLowerCase().includes(normalizedSearchTerm)) score += 15;
+        if (product.productType?.toLowerCase().includes(normalizedSearchTerm)) score += 8;
         
-        // Description match
-        if (product.description && 
-            product.description.toLowerCase().includes(normalizedSearchTerm)) {
-          score += 5;
-        }
-        
-        // Vendor match (e.g., Thalgo)
-        if (product.vendor && 
-            product.vendor.toLowerCase().includes(normalizedSearchTerm)) {
-          score += 15;
-        }
+        // Category matches
+        product.categories?.forEach(category => {
+          if (normalizedSearchTerm.includes(category)) score += 15;
+          if (productCategories[category]?.some(keyword => 
+            normalizedSearchTerm.includes(keyword)
+          )) score += 10;
+        });
 
-        // Product type match
-        if (product.productType && 
-            product.productType.toLowerCase().includes(normalizedSearchTerm)) {
-          score += 8;
-        }
+        // Tag matches
+        product.tags?.forEach(tag => {
+          if (tag.toLowerCase().includes(normalizedSearchTerm)) score += 5;
+        });
 
-        // Tags match
-        if (product.tags.some(tag => 
-          tag.toLowerCase().includes(normalizedSearchTerm))) {
-          score += 5;
-        }
-
-        // Collection match
-        if (product.collections.edges.some(edge => 
-          edge.node.title.toLowerCase().includes(normalizedSearchTerm) ||
-          edge.node.handle.toLowerCase().includes(normalizedSearchTerm))) {
-          score += 8;
-        }
+        // Collection matches
+        product.collections.edges.forEach(edge => {
+          if (edge.node.title.toLowerCase().includes(normalizedSearchTerm)) score += 8;
+        });
 
         return { ...product, relevanceScore: score };
       })
-      .filter(product => product.relevanceScore > 0)
+      .filter(product => 
+        product.relevanceScore > 0 && 
+        !previousProducts.includes(product.id)
+      )
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-    // Filter out previously shown products
-    const filteredProducts = scoredProducts
-      .filter(product => !previousProducts.includes(product.id))
-      .slice(0, 3);
-
-    // If we don't have enough products, get random ones
-    if (filteredProducts.length < 3) {
-      const randomProducts = allProducts
-        .filter(p => 
-          p.available && 
-          !previousProducts.includes(p.id) && 
-          !filteredProducts.find(fp => fp.id === p.id)
-        )
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 3 - filteredProducts.length);
-
-      return [...filteredProducts, ...randomProducts];
-    }
-
-    return filteredProducts;
+    // Get top 3 matches or random products
+    return scoredProducts.length > 0 
+      ? scoredProducts.slice(0, 3)
+      : getRandomProducts(allProducts, previousProducts);
   } catch (error) {
     console.error('Product search error:', error);
     return [];
   }
 }
 
-// Modified system prompt builder with complete Shopify data
-async function buildSystemPrompt() {
-  const metadata = await getShopifyMetadata();
-  const collectionList = metadata.collections
-    .map((col, index) => `${index + 1}. ${col.title}${col.description ? ` - ${col.description}` : ''}`)
-    .join('\n');
+// Get random products helper
+function getRandomProducts(products, previousProducts, count = 3) {
+  return products
+    .filter(p => p.available && !previousProducts.includes(p.id))
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count);
+}
 
-  return `[Your existing system prompt with ${collectionList} inserted in PRODUKT KATEGORIER section]`;
+// Enhanced product request detection
+async function isProductRequest(message) {
+  const metadata = await getShopifyMetadata();
+  const normalizedMessage = message.toLowerCase();
+  
+  // Action terms in Norwegian
+  const actionTerms = [
+    'vis', 'se', 'kjøpe', 'bestille', 'flere', 'produkt', 
+    'anbefal', 'foreslå', 'finne', 'søke', 'handle'
+  ];
+  
+  // Check for action terms
+  const hasActionTerm = actionTerms.some(term => 
+    normalizedMessage.includes(term)
+  );
+  
+  // Check for product-related terms
+  const hasProductTerm = [
+    ...metadata.searchTerms.vendors,
+    ...metadata.searchTerms.productTypes,
+    ...metadata.searchTerms.tags,
+    ...Object.keys(productCategories),
+    ...Object.values(productCategories).flat()
+  ].some(term => normalizedMessage.includes(term.toLowerCase()));
+
+  return hasActionTerm || hasProductTerm;
 }
 
 // Main handler function
@@ -325,7 +350,7 @@ export default async function handler(req, res) {
     const sessionId = req.body.sessionId || 'default';
     const previousProducts = shownProductsCache.get(sessionId) || [];
 
-    // Get current system prompt with updated categories
+    // Get system prompt with updated categories
     const systemPrompt = await buildSystemPrompt();
 
     // Handle direct product requests
@@ -350,12 +375,7 @@ export default async function handler(req, res) {
       model: "claude-3-sonnet-20240229",
       max_tokens: 1024,
       system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: userMessage
-        }
-      ]
+      messages: [{ role: "user", content: userMessage }]
     });
 
     const response = completion.content[0].text;
@@ -392,33 +412,14 @@ export default async function handler(req, res) {
   }
 }
 
-// Helper function to check if message is a product request using actual Shopify data
-async function isProductRequest(message) {
-  const metadata = await getShopifyMetadata();
-  const normalizedMessage = message.toLowerCase();
-  
-  // Common action words in Norwegian
-  const actionTerms = ['vis', 'se', 'kjøpe', 'bestille', 'flere'];
-  
-  // Check if message contains any action terms
-  const hasActionTerm = actionTerms.some(term => normalizedMessage.includes(term));
-  
-  // Check if message contains any product-related terms from Shopify
-  const hasProductTerm = [
-    ...metadata.searchTerms.vendors,
-    ...metadata.searchTerms.productTypes,
-    ...metadata.searchTerms.tags
-  ].some(term => normalizedMessage.includes(term.toLowerCase()));
-
-  return hasActionTerm || hasProductTerm;
-}
-
 export const config = {
   api: {
     bodyParser: true,
     externalResolver: true,
   },
 };
+
+// Keep your existing buildSystemPrompt function here with your current system prompt
 
 // Modified system prompt builder with complete Shopify data
 async function buildSystemPrompt() {
