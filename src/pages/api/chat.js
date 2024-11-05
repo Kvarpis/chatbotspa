@@ -5,116 +5,139 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-// Enhanced fuzzy search with language-aware matching
-function fuzzyMatch(str1, str2) {
-  const normalize = (str) => str.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-    .replace(/[^a-z0-9\s]/g, ''); // Remove special characters
-
-  const s1 = normalize(str1);
-  const s2 = normalize(str2);
-  
-  // Check for exact matches first
-  if (s1 === s2) return true;
-  
-  // Check for substring matches
-  if (s1.includes(s2) || s2.includes(s1)) return true;
-  
-  // Check for word-level matches
-  const words1 = s1.split(/\s+/);
-  const words2 = s2.split(/\s+/);
-  
-  for (const word1 of words1) {
-    for (const word2 of words2) {
-      if (levenshteinDistance(word1, word2) <= Math.min(2, Math.floor(word1.length * 0.3))) {
-        return true;
-      }
-    }
-  }
-  
-  return false;
-}
-
-// Improved Levenshtein distance calculation
-function levenshteinDistance(str1, str2) {
-  const track = Array(str2.length + 1).fill(null).map(() =>
-    Array(str1.length + 1).fill(null));
-    
-  for (let i = 0; i <= str1.length; i += 1) {
-    track[0][i] = i;
-  }
-  for (let j = 0; j <= str2.length; j += 1) {
-    track[j][0] = j;
-  }
-  
-  for (let j = 1; j <= str2.length; j += 1) {
-    for (let i = 1; i <= str1.length; i += 1) {
-      const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      track[j][i] = Math.min(
-        track[j][i - 1] + 1,
-        track[j - 1][i] + 1,
-        track[j - 1][i - 1] + indicator
-      );
-    }
-  }
-  
-  return track[str2.length][str1.length];
-}
-
-// Enhanced product categories with synonyms and common misspellings
-const productCategories = {
-  'hudpleie': ['face', 'facial', 'skin care', 'skincare', 'hudkrem', 'krem', 'cream', 'lotion', 'ansikt', 'ansiktskrem'],
-  'kropp': ['body', 'massage', 'kroppspleie', 'body lotion', 'body cream', 'kroppskrem'],
-  'thalgo': ['thalgo', 'talgo', 'thalgo products', 'thalgo behandling'],
-  'gave': ['gift', 'present', 'gavekort', 'gaveesker', 'gavesett'],
-  'behandling': ['treatment', 'therapy', 'spa', 'massage', 'massasje', 'behandlinger']
+// Cache for collections and tags
+let shopifyMetadataCache = {
+  collections: null,
+  lastFetched: null
 };
 
-// Normalize and prepare search terms
-function normalizeSearchTerm(term) {
-  return term.toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim();
+// Fetch all collections from Shopify
+async function fetchShopifyMetadata() {
+  try {
+    // Only fetch if cache is empty or older than 1 hour
+    if (shopifyMetadataCache.collections && 
+        shopifyMetadataCache.lastFetched && 
+        (Date.now() - shopifyMetadataCache.lastFetched) < 3600000) {
+      return shopifyMetadataCache.collections;
+    }
+
+    const shopifyUrl = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
+    const accessToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
+
+    const query = `
+      {
+        collections(first: 250) {
+          edges {
+            node {
+              id
+              title
+              handle
+              description
+              products(first: 250) {
+                edges {
+                  node {
+                    id
+                    tags
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await fetch(`https://${shopifyUrl}/api/2023-10/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Storefront-Access-Token': accessToken,
+      },
+      body: JSON.stringify({ query })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const collections = data.data?.collections?.edges.map(edge => ({
+      id: edge.node.id,
+      title: edge.node.title,
+      handle: edge.node.handle,
+      description: edge.node.description,
+      productIds: edge.node.products.edges.map(prod => prod.node.id),
+      productTags: edge.node.products.edges.reduce((tags, prod) => {
+        return [...new Set([...tags, ...(prod.node.tags || [])])];
+      }, [])
+    })) || [];
+
+    shopifyMetadataCache = {
+      collections,
+      lastFetched: Date.now()
+    };
+
+    return collections;
+  } catch (error) {
+    console.error('Error fetching Shopify metadata:', error);
+    return shopifyMetadataCache.collections || [];
+  }
 }
 
-// Enhanced product search function
+// Enhanced search function using Shopify collections and tags
 async function searchProducts(searchTerm, previousProducts = []) {
   try {
-    const allProducts = await getAllProducts();
+    const [allProducts, collections] = await Promise.all([
+      getAllProducts(),
+      fetchShopifyMetadata()
+    ]);
+
     if (!allProducts || allProducts.length === 0) {
       console.error('No products found in store');
       return [];
     }
 
-    // If no specific search term, return random available products
-    if (!searchTerm || 
-        searchTerm.toLowerCase().includes('produkter') || 
-        searchTerm.toLowerCase().includes('vis meg')) {
-      return getRandomProducts(allProducts, 3, previousProducts);
-    }
+    const normalizedSearchTerm = searchTerm.toLowerCase().trim();
 
-    const normalizedSearchTerm = normalizeSearchTerm(searchTerm);
-    
-    // Score and rank products based on relevance
+    // Find matching collections based on title or handle
+    const matchingCollections = collections.filter(collection => 
+      fuzzyMatch(collection.title, normalizedSearchTerm) || 
+      fuzzyMatch(collection.handle, normalizedSearchTerm)
+    );
+
+    // Get all product IDs from matching collections
+    const collectionProductIds = new Set(
+      matchingCollections.flatMap(collection => collection.productIds)
+    );
+
+    // Filter and score products
     const scoredProducts = allProducts
       .filter(product => product.available)
       .map(product => {
         let score = 0;
         
-        // Check title match
-        if (fuzzyMatch(product.title, normalizedSearchTerm)) score += 10;
-        
-        // Check description match
-        if (product.description && fuzzyMatch(product.description, normalizedSearchTerm)) score += 5;
-        
-        // Check category matches
-        for (const [ keywords] of Object.entries(productCategories)) {
-          if (keywords.some(keyword => fuzzyMatch(keyword, normalizedSearchTerm))) {
-            score += 8;
-          }
+        // Collection match
+        if (collectionProductIds.has(product.id)) {
+          score += 15;
         }
+
+        // Title match
+        if (fuzzyMatch(product.title, normalizedSearchTerm)) {
+          score += 10;
+        }
+        
+        // Description match
+        if (product.description && fuzzyMatch(product.description, normalizedSearchTerm)) {
+          score += 5;
+        }
+
+        // Tag matches (if product has tags that match collection tags)
+        const productTags = product.tags || [];
+        const matchingCollectionTags = matchingCollections.flatMap(c => c.productTags);
+        const tagMatches = productTags.filter(tag => 
+          matchingCollectionTags.some(collectionTag => fuzzyMatch(tag, collectionTag))
+        );
+        score += tagMatches.length * 3;
         
         return { ...product, relevanceScore: score };
       })
@@ -122,36 +145,17 @@ async function searchProducts(searchTerm, previousProducts = []) {
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
     // Filter out previously shown products
-    const newProducts = scoredProducts
+    return scoredProducts
       .filter(product => !previousProducts.includes(product.id))
       .slice(0, 3);
 
-    // If we don't have enough new products, get random ones
-    if (newProducts.length < 3) {
-      const additionalProducts = getRandomProducts(
-        allProducts.filter(p => !previousProducts.includes(p.id) && 
-                               !newProducts.find(np => np.id === p.id)),
-        3 - newProducts.length
-      );
-      return [...newProducts, ...additionalProducts];
-    }
-
-    return newProducts;
   } catch (error) {
     console.error('Product search error:', error);
     return [];
   }
 }
 
-// Get random products helper
-function getRandomProducts(products, count, excludeIds = []) {
-  return products
-    .filter(p => p.available && !excludeIds.includes(p.id))
-    .sort(() => Math.random() - 0.5)
-    .slice(0, count);
-}
-
-// Fetch all products from Shopify
+// Updated GraphQL query to include tags
 async function getAllProducts() {
   try {
     const shopifyUrl = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
@@ -166,6 +170,7 @@ async function getAllProducts() {
               title
               description
               handle
+              tags
               availableForSale
               featuredImage {
                 url
@@ -189,9 +194,10 @@ async function getAllProducts() {
                   }
                 }
               }
-              collections(first: 5) {
+              collections(first: 10) {
                 edges {
                   node {
+                    id
                     title
                     handle
                   }
@@ -218,11 +224,6 @@ async function getAllProducts() {
 
     const data = await response.json();
     
-    if (data.errors) {
-      console.error('Shopify GraphQL Errors:', data.errors);
-      return [];
-    }
-
     return (data.data?.products?.edges || []).map(edge => {
       const node = edge.node;
       const variant = node.variants.edges[0]?.node;
@@ -232,6 +233,7 @@ async function getAllProducts() {
         title: node.title,
         description: node.description || '',
         handle: node.handle,
+        tags: node.tags || [],
         featuredImage: node.featuredImage ? {
           url: node.featuredImage.url,
           altText: node.featuredImage.altText || node.title
@@ -249,7 +251,8 @@ async function getAllProducts() {
             currencyCode: variant?.price?.currencyCode || 'NOK'
           }
         },
-        available: node.availableForSale
+        available: node.availableForSale,
+        collections: node.collections
       };
     });
   } catch (error) {
