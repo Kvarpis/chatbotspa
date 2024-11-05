@@ -201,8 +201,31 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleAddToCart = async (variantId: string, quantity: number = 1) => {
-    console.log("Adding to cart with ID:", variantId); // Debug log
+  const extractVariantId = (gid: string): number | null => {
+    try {
+      // Extract the numeric ID from the GraphQL ID
+      const matches = gid.match(/\/ProductVariant\/(\d+)/);
+      if (matches && matches[1]) {
+        return parseInt(matches[1], 10);
+      }
+      return null;
+    } catch (error) {
+      console.error("Error extracting variant ID:", error);
+      return null;
+    }
+  };
+
+  const handleAddToCart = async (graphqlId: string, quantity: number = 1) => {
+    console.log("Original GraphQL ID:", graphqlId);
+    const numericId = extractVariantId(graphqlId);
+    
+    if (!numericId) {
+      console.error("Failed to extract numeric ID from:", graphqlId);
+      showNotification(TRANSLATIONS.error, "error");
+      return;
+    }
+
+    console.log("Extracted numeric ID:", numericId);
     setIsAdding(true);
     
     try {
@@ -210,21 +233,29 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
         },
+        credentials: 'same-origin',
         body: JSON.stringify({
-          items: [{
-            id: variantId,
-            quantity: quantity
-          }]
+          form_type: 'product',
+          utf8: '✓',
+          id: numericId,
+          quantity: quantity,
+          sections: 'cart-drawer,cart-icon-bubble'
         })
       });
 
-      const data = await response.json();
-      console.log('Add to cart response:', data);
+      // First log the raw response for debugging
+      const text = await response.text();
+      console.log('Raw response:', text);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      // Then parse it as JSON
+      const data = text ? JSON.parse(text) : null;
+      console.log('Parsed response:', data);
+
+      if (!response.ok || !data) {
+        throw new Error(`Failed to add item to cart: ${response.status}`);
       }
 
       setIsAdded(true);
@@ -246,7 +277,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       setTimeout(() => setIsAdded(false), 2000);
 
     } catch (error) {
-      console.error("Error adding to cart:", error);
+      console.error("Error adding to cart:", error instanceof Error ? error.message : 'Unknown error');
       showNotification(TRANSLATIONS.error, "error");
     } finally {
       setIsAdding(false);
