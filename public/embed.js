@@ -21,6 +21,57 @@
         return cookies;
     }
 
+    // Helper function to handle cart updates
+    function handleCartUpdate(data) {
+        // Using the current window's fetch to maintain session
+        fetch('/cart.js', {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(cartData => {
+            console.log('Current cart data:', cartData);
+
+            // Update cart count
+            const cartCountElements = document.querySelectorAll('.cart-count-bubble span');
+            cartCountElements.forEach(elem => {
+                elem.textContent = cartData.item_count.toString();
+            });
+
+            // Update cart drawer if it exists
+            if (window.Shopify && window.Shopify.onCartUpdate) {
+                window.Shopify.onCartUpdate(cartData);
+            }
+
+            // Try to open cart drawer if it exists
+            const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
+            if (cartDrawerTrigger instanceof HTMLElement) {
+                cartDrawerTrigger.click();
+            }
+
+            // Update the cookies object with new cart token
+            const currentCookies = getCookies();
+            cookies.cart = currentCookies.cart;
+
+            // Send updated session to iframe
+            iframe.contentWindow.postMessage({
+                type: 'SESSION_UPDATE',
+                cookies: currentCookies,
+                shopifyData: {
+                    shop: window.Shopify?.shop,
+                    currency: window.Shopify?.currency?.active,
+                    cartToken: currentCookies.cart
+                }
+            }, config.baseUrl);
+        })
+        .catch(error => {
+            console.error('Error updating cart:', error);
+        });
+    }
+
     // Create and configure iframe
     const iframe = document.createElement('iframe');
     
@@ -43,7 +94,7 @@
     const params = new URLSearchParams({
         cart: cookies.cart || '',
         shop_session: cookies._shopify_s || '',
-        shop_domain: window.Shopify?.shop || ''
+        shop_domain: window.location.hostname || window.Shopify?.shop || ''
     });
     
     iframe.src = `${config.baseUrl}?${params.toString()}`;
@@ -58,9 +109,10 @@
             type: 'INIT_SESSION',
             cookies: getCookies(),
             shopifyData: {
-                shop: window.Shopify?.shop,
+                shop: window.location.hostname || window.Shopify?.shop,
                 currency: window.Shopify?.currency?.active,
-                cartToken: cookies.cart
+                cartToken: cookies.cart,
+                cartUpdateUrl: window.location.origin + '/cart/add.js'
             }
         }, config.baseUrl);
     };
@@ -78,23 +130,62 @@
         if (event.origin === config.baseUrl) {
             console.log('Received message from chat:', event.data);
             
-            if (event.data === 'expand') {
-                iframe.style.width = config.expandedWidth;
-                iframe.style.height = config.expandedHeight;
-            } else if (event.data === 'minimize') {
-                iframe.style.width = config.buttonSize;
-                iframe.style.height = config.buttonSize;
-            } else if (event.data?.type === 'REQUEST_SESSION') {
-                // Send current session data when requested
-                iframe.contentWindow.postMessage({
-                    type: 'SESSION_UPDATE',
-                    cookies: getCookies(),
-                    shopifyData: {
-                        shop: window.Shopify?.shop,
-                        currency: window.Shopify?.currency?.active,
-                        cartToken: cookies.cart
+            switch(event.data?.type) {
+                case 'CART_UPDATE':
+                    console.log('Processing cart update:', event.data);
+                    handleCartUpdate(event.data.data);
+                    break;
+
+                case 'REQUEST_SESSION':
+                    // Send current session data when requested
+                    iframe.contentWindow.postMessage({
+                        type: 'SESSION_UPDATE',
+                        cookies: getCookies(),
+                        shopifyData: {
+                            shop: window.location.hostname || window.Shopify?.shop,
+                            currency: window.Shopify?.currency?.active,
+                            cartToken: cookies.cart,
+                            cartUpdateUrl: window.location.origin + '/cart/add.js'
+                        }
+                    }, config.baseUrl);
+                    break;
+
+                case 'ADD_TO_CART':
+                    // Handle add to cart request from iframe
+                    const { variantId, quantity } = event.data;
+                    fetch('/cart/add.js', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            items: [{
+                                id: variantId,
+                                quantity: quantity
+                            }]
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Added to cart:', data);
+                        handleCartUpdate({ action: 'add', data });
+                    })
+                    .catch(error => {
+                        console.error('Error adding to cart:', error);
+                    });
+                    break;
+
+                default:
+                    // Handle expand/minimize
+                    if (event.data === 'expand') {
+                        iframe.style.width = config.expandedWidth;
+                        iframe.style.height = config.expandedHeight;
+                    } else if (event.data === 'minimize') {
+                        iframe.style.width = config.buttonSize;
+                        iframe.style.height = config.buttonSize;
                     }
-                }, config.baseUrl);
             }
         }
     });
@@ -104,10 +195,7 @@
         const currentCookies = getCookies();
         if (currentCookies.cart !== cookies.cart) {
             cookies.cart = currentCookies.cart;
-            iframe.contentWindow.postMessage({
-                type: 'CART_UPDATE',
-                cartToken: currentCookies.cart
-            }, config.baseUrl);
+            handleCartUpdate({ action: 'update' });
         }
     }, 1000);
 

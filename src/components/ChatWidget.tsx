@@ -215,77 +215,24 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleAddToCart = async (graphqlId: string, quantity: number = 1) => {
-    console.log("Original GraphQL ID:", graphqlId);
     const numericId = extractVariantId(graphqlId);
-    
-    if (!numericId) {
-      console.error("Failed to extract numeric ID from:", graphqlId);
-      showNotification(TRANSLATIONS.error, "error");
-      return;
-    }
+    if (!numericId) return;
   
-    console.log("Extracted numeric ID:", numericId);
     setIsAdding(true);
     
     try {
-      // Using our backend API endpoint instead of directly calling Shopify
-      const response = await fetch('/api/cart/add', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          variantId: numericId,
-          quantity: quantity
-        })
-      });
-  
-      // Log the request details
-      console.log('Request details:', {
-        url: '/api/cart/add',
-        method: 'POST',
-        body: JSON.stringify({
-          variantId: numericId,
-          quantity: quantity
-        })
-      });
-  
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        throw new Error(`Failed to add item to cart: ${response.status}`);
-      }
-  
-      const data = await response.json();
-      console.log('Add to cart response:', data);
+      // Send add to cart request to parent window
+      window.parent.postMessage({
+        type: 'ADD_TO_CART',
+        variantId: numericId,
+        quantity: quantity
+      }, '*');
   
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
-  
-      // If in iframe, post message to parent for cart refresh
-      if (window.self !== window.top) {
-        try {
-          window.parent.postMessage({
-            type: 'CART_UPDATED',
-            data: {
-              action: 'add',
-              variantId: numericId,
-              quantity: quantity
-            }
-          }, '*');
-        } catch (error) {
-          console.error('Error posting message to parent:', error);
-        }
-      }
-  
       setTimeout(() => setIsAdded(false), 2000);
-  
     } catch (error) {
-      console.error("Error adding to cart:", error instanceof Error ? error.message : 'Unknown error');
+      console.error("Error adding to cart:", error);
       showNotification(TRANSLATIONS.error, "error");
     } finally {
       setIsAdding(false);
