@@ -75,7 +75,7 @@
     }
 
     // Enhanced cart update handler
-    function handleCartUpdate(data) {
+    function handleCartUpdate(data, showDrawer = false) {
         fetch('/cart.js', {
             method: 'GET',
             credentials: 'same-origin',
@@ -118,35 +118,12 @@
                 });
             }
 
-            // Try to open cart drawer using various selectors
-            const cartDrawerTriggers = [
-                '[data-cart-drawer-trigger]',
-                '[data-drawer-toggle="cart"]',
-                '.js-drawer-open-cart',
-                '[data-action="open-drawer"][data-drawer="cart"]',
-                '.cart-link',
-                '#cart-icon-bubble'
-            ];
-
-            for (const selector of cartDrawerTriggers) {
-                const trigger = document.querySelector(selector);
-                if (trigger instanceof HTMLElement) {
-                    trigger.click();
-                    break;
+            // Only open cart drawer if showDrawer is true
+            if (showDrawer) {
+                const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
+                if (cartDrawerTrigger instanceof HTMLElement) {
+                    cartDrawerTrigger.click();
                 }
-            }
-
-            // Update cart drawer visibility
-            const cartDrawer = document.querySelector([
-                '#cart-drawer',
-                '.cart-drawer',
-                '.js-cart-drawer',
-                '[data-drawer="cart"]'
-            ].join(','));
-
-            if (cartDrawer) {
-                cartDrawer.classList.add('is-active', 'is-visible', 'drawer--is-open');
-                document.body.classList.add('cart-drawer-open');
             }
 
             // Update cookies and session
@@ -202,8 +179,8 @@
         iframe.style.opacity = '1';
         console.log('Chat widget loaded successfully');
         
-        // Initialize cart count on load
-        handleCartUpdate();
+        // Initialize cart count on load without showing drawer
+        handleCartUpdate({}, false);
         
         // Send initial session data
         iframe.contentWindow.postMessage({
@@ -234,7 +211,7 @@
             switch(event.data?.type) {
                 case 'CART_UPDATE':
                     console.log('Processing cart update:', event.data);
-                    handleCartUpdate(event.data.data);
+                    handleCartUpdate(event.data.data, false);
                     break;
 
                 case 'REQUEST_SESSION':
@@ -271,7 +248,7 @@
                     .then(response => response.json())
                     .then(data => {
                         console.log('Added to cart:', data);
-                        handleCartUpdate({ action: 'add', data });
+                        handleCartUpdate({ action: 'add', data }, true); // Show drawer when adding items
 
                         // Send success message back to iframe
                         iframe.contentWindow.postMessage({
@@ -305,7 +282,7 @@
         const currentCookies = getCookies();
         if (currentCookies.cart !== cookies.cart) {
             cookies.cart = currentCookies.cart;
-            handleCartUpdate({ action: 'update' });
+            handleCartUpdate({ action: 'update' }, false); // Don't show drawer for cookie updates
         }
     }, 1000);
 
