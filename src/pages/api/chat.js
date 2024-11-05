@@ -1,208 +1,34 @@
-// pages/api/chat.js
-import { Anthropic } from '@anthropic-ai/sdk';
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
-
-// Cache for collections and tags
-let shopifyMetadataCache = {
-  collections: null,
-  lastFetched: null
-};
-
-// Fetch all collections from Shopify
+// Fetch all relevant metadata from Shopify
 async function fetchShopifyMetadata() {
   try {
-    // Only fetch if cache is empty or older than 1 hour
-    if (shopifyMetadataCache.collections && 
-        shopifyMetadataCache.lastFetched && 
-        (Date.now() - shopifyMetadataCache.lastFetched) < 3600000) {
-      return shopifyMetadataCache.collections;
-    }
-
     const shopifyUrl = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
     const accessToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
 
     const query = `
       {
-        collections(first: 250) {
+        collections(first: 25) {
           edges {
             node {
               id
               title
               handle
               description
-              products(first: 250) {
+              products(first: 1) {
                 edges {
                   node {
                     id
-                    tags
                   }
                 }
               }
             }
           }
         }
-      }
-    `;
-
-    const response = await fetch(`https://${shopifyUrl}/api/2023-10/graphql.json`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': accessToken,
-      },
-      body: JSON.stringify({ query })
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const collections = data.data?.collections?.edges.map(edge => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      handle: edge.node.handle,
-      description: edge.node.description,
-      productIds: edge.node.products.edges.map(prod => prod.node.id),
-      productTags: edge.node.products.edges.reduce((tags, prod) => {
-        return [...new Set([...tags, ...(prod.node.tags || [])])];
-      }, [])
-    })) || [];
-
-    shopifyMetadataCache = {
-      collections,
-      lastFetched: Date.now()
-    };
-
-    return collections;
-  } catch (error) {
-    console.error('Error fetching Shopify metadata:', error);
-    return shopifyMetadataCache.collections || [];
-  }
-}
-
-// Enhanced search function using Shopify collections and tags
-async function searchProducts(searchTerm, previousProducts = []) {
-  try {
-    const [allProducts, collections] = await Promise.all([
-      getAllProducts(),
-      fetchShopifyMetadata()
-    ]);
-
-    if (!allProducts || allProducts.length === 0) {
-      console.error('No products found in store');
-      return [];
-    }
-
-    const normalizedSearchTerm = searchTerm.toLowerCase().trim();
-
-    // Find matching collections based on title or handle
-    const matchingCollections = collections.filter(collection => 
-      fuzzyMatch(collection.title, normalizedSearchTerm) || 
-      fuzzyMatch(collection.handle, normalizedSearchTerm)
-    );
-
-    // Get all product IDs from matching collections
-    const collectionProductIds = new Set(
-      matchingCollections.flatMap(collection => collection.productIds)
-    );
-
-    // Filter and score products
-    const scoredProducts = allProducts
-      .filter(product => product.available)
-      .map(product => {
-        let score = 0;
-        
-        // Collection match
-        if (collectionProductIds.has(product.id)) {
-          score += 15;
-        }
-
-        // Title match
-        if (fuzzyMatch(product.title, normalizedSearchTerm)) {
-          score += 10;
-        }
-        
-        // Description match
-        if (product.description && fuzzyMatch(product.description, normalizedSearchTerm)) {
-          score += 5;
-        }
-
-        // Tag matches (if product has tags that match collection tags)
-        const productTags = product.tags || [];
-        const matchingCollectionTags = matchingCollections.flatMap(c => c.productTags);
-        const tagMatches = productTags.filter(tag => 
-          matchingCollectionTags.some(collectionTag => fuzzyMatch(tag, collectionTag))
-        );
-        score += tagMatches.length * 3;
-        
-        return { ...product, relevanceScore: score };
-      })
-      .filter(product => product.relevanceScore > 0)
-      .sort((a, b) => b.relevanceScore - a.relevanceScore);
-
-    // Filter out previously shown products
-    return scoredProducts
-      .filter(product => !previousProducts.includes(product.id))
-      .slice(0, 3);
-
-  } catch (error) {
-    console.error('Product search error:', error);
-    return [];
-  }
-}
-
-// Updated GraphQL query to include tags
-async function getAllProducts() {
-  try {
-    const shopifyUrl = process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL;
-    const accessToken = process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN;
-
-    const query = `
-      {
         products(first: 250) {
           edges {
             node {
-              id
-              title
-              description
-              handle
+              vendor
+              productType
               tags
-              availableForSale
-              featuredImage {
-                url
-                altText
-              }
-              priceRange {
-                minVariantPrice {
-                  amount
-                  currencyCode
-                }
-              }
-              variants(first: 1) {
-                edges {
-                  node {
-                    id
-                    availableForSale
-                    price {
-                      amount
-                      currencyCode
-                    }
-                  }
-                }
-              }
-              collections(first: 10) {
-                edges {
-                  node {
-                    id
-                    title
-                    handle
-                  }
-                }
-              }
             }
           }
         }
@@ -224,55 +50,96 @@ async function getAllProducts() {
 
     const data = await response.json();
     
-    return (data.data?.products?.edges || []).map(edge => {
-      const node = edge.node;
-      const variant = node.variants.edges[0]?.node;
-      
-      return {
-        id: node.id,
-        title: node.title,
-        description: node.description || '',
-        handle: node.handle,
-        tags: node.tags || [],
-        featuredImage: node.featuredImage ? {
-          url: node.featuredImage.url,
-          altText: node.featuredImage.altText || node.title
-        } : null,
-        variants: {
-          edges: [{
-            node: {
-              id: variant?.id
-            }
-          }]
-        },
-        priceRange: {
-          minVariantPrice: {
-            amount: variant?.price?.amount || node.priceRange?.minVariantPrice?.amount || "0",
-            currencyCode: variant?.price?.currencyCode || 'NOK'
-          }
-        },
-        available: node.availableForSale,
-        collections: node.collections
-      };
+    // Get all unique vendors, types, and tags
+    const vendors = new Set();
+    const productTypes = new Set();
+    const tags = new Set();
+
+    data.data?.products?.edges.forEach(edge => {
+      if (edge.node.vendor) vendors.add(edge.node.vendor.toLowerCase());
+      if (edge.node.productType) productTypes.add(edge.node.productType.toLowerCase());
+      edge.node.tags?.forEach(tag => tags.add(tag.toLowerCase()));
     });
+
+    // Get only collections that have products
+    const collections = data.data?.collections?.edges
+      .filter(edge => edge.node.products.edges.length > 0)
+      .map(edge => ({
+        id: edge.node.id,
+        title: edge.node.title,
+        handle: edge.node.handle,
+        description: edge.node.description
+      })) || [];
+
+    return {
+      collections,
+      searchTerms: {
+        vendors: Array.from(vendors),
+        productTypes: Array.from(productTypes),
+        tags: Array.from(tags)
+      }
+    };
   } catch (error) {
-    console.error('Error fetching all products:', error);
-    return [];
+    console.error('Error fetching Shopify metadata:', error);
+    return {
+      collections: [],
+      searchTerms: {
+        vendors: [],
+        productTypes: [],
+        tags: []
+      }
+    };
   }
 }
 
-// Store shown products in memory (consider using Redis or similar for production)
-const shownProductsCache = new Map();
+// Cache for Shopify metadata
+let metadataCache = {
+  data: null,
+  lastFetched: null,
+  timeout: 5 * 60 * 1000 // 5 minutes
+};
 
-// Enhanced system prompt for better product understanding
-const systemPrompt = `
-Du er en konsis kundeservice-assistent for Seacret Spa.
+// Function to get metadata with caching
+async function getShopifyMetadata() {
+  if (
+    !metadataCache.data || 
+    !metadataCache.lastFetched ||
+    Date.now() - metadataCache.lastFetched > metadataCache.timeout
+  ) {
+    metadataCache.data = await fetchShopifyMetadata();
+    metadataCache.lastFetched = Date.now();
+  }
+  return metadataCache.data;
+}
 
-HOVEDOPPGAVER:
-1. Produktanbefalinger - Bruk "PRODUCT_REQUEST:<søkeord>"
-2. Behandlingsinfo - Vis kun når det spørres spesifikt
-3. Bestilling - Bruk "BOOKING_REQUEST" i svaret
-4. Kontaktinfo - Kort og konsist
+// Modified system prompt builder with complete Shopify data
+async function buildSystemPrompt() {
+  const metadata = await getShopifyMetadata();
+  const collectionList = metadata.collections
+    .map((col, index) => `${index + 1}. ${col.title}${col.description ? ` - ${col.description}` : ''}`)
+    .join('\n');
+
+  const systemPrompt = `
+Du er en effektiv kundeservice-assistent for Seacret Spa, en eksklusiv spa- og velværeklinikk i Tønsberg.
+
+REGLER:
+1. Svar ALLTID kort og presist (maks 1-2 setninger)
+2. For produkt-søk, bruk "PRODUCT_REQUEST:<søkeord>"
+3. For bestilling, inkluder booking-lenke
+4. Ved spørsmål om behandlinger, list opp i nummerert format
+
+PRODUKT KATEGORIER:
+${collectionList}
+
+VIKTIG INFORMASJON OM SEACRET SPA:
+- Beliggenhet: Gauterødveien 6b, 3154 Tolvsrød, Tønsberg (i underetasjen på Olsrød Park)
+- Veibeskrivelse: 
+  * Gå opp rulletrappen
+  * Følg skiltingen til Seacret SPA
+  * Like ved Level treningssenter
+- Kontakt: 
+  * Telefon: 91594152
+  * E-post: runhild@cliniquer.no
 
 REGLER FOR SVAR:
 1. Maks 1-2 setninger for generelle spørsmål
@@ -377,9 +244,8 @@ Eksempler:
 For spørsmål om behandlinger, gi nøyaktig informasjon om tilgjengelige alternativer og priser fra listen over.
 
 Hold alltid en profesjonell, men varm tone som reflekterer Seacret Spas høye servicestandard.`;
-
 // Main handler function
-export default async function handler(req, res) {
+const handler = async function(req, res) {
   if (!anthropic) {
     return res.status(500).json({
       success: false,
@@ -453,7 +319,8 @@ export default async function handler(req, res) {
     console.error('Handler error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || 'En uventet feil oppstod'
     });
   }
+}
 }
