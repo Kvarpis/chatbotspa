@@ -232,17 +232,14 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       const isIframe = window.self !== window.top;
       console.log("Is in iframe:", isIframe);
   
-      // Get the shop domain
-      const shopDomain = window.location.hostname;
+      // Use the correct Shopify domain
+      const shopDomain = 'seacretspano.myshopify.com';
       console.log("Shop domain:", shopDomain);
   
-      // Construct the proper URL based on context
-      const cartUrl = isIframe ? `https://${shopDomain}/cart/add.js` : '/cart/add.js';
+      // Construct the proper URL with the correct domain
+      const cartUrl = `https://${shopDomain}/cart/add.js`;
       console.log("Using cart URL:", cartUrl);
   
-      // Get CSRF token if it exists
-      const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content;
-      
       const response = await fetch(cartUrl, {
         method: 'POST',
         credentials: 'include',
@@ -250,7 +247,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
-          ...(csrfToken && { 'X-CSRF-Token': csrfToken })
+          'Origin': 'https://chatbotspa.vercel.app'
         },
         body: JSON.stringify({
           items: [{
@@ -268,7 +265,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
-          ...(csrfToken && { 'X-CSRF-Token': csrfToken })
+          'Origin': 'https://chatbotspa.vercel.app'
         },
         credentials: 'include',
         body: JSON.stringify({
@@ -295,25 +292,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       setIsAdded(true);
       showNotification(TRANSLATIONS.added, "success");
   
-      // Update cart UI - if in iframe, need to message parent
+      // If in iframe, post message to parent for cart refresh
       if (isIframe) {
-        window.parent.postMessage({ type: 'cart:refresh' }, '*');
-      } else {
-        document.documentElement.dispatchEvent(
-          new CustomEvent('cart:refresh', {
-            bubbles: true
-          })
-        );
-      }
-  
-      // Try to open cart drawer if it exists and we're not in an iframe
-      if (!isIframe) {
-        const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
-        if (cartDrawerTrigger instanceof HTMLElement) {
-          cartDrawerTrigger.click();
+        try {
+          window.parent.postMessage({
+            type: 'CART_UPDATED',
+            data: {
+              action: 'add',
+              variantId: numericId,
+              quantity: quantity
+            }
+          }, '*');
+        } catch (error) {
+          console.error('Error posting message to parent:', error);
         }
       }
   
+      // Set success state but don't redirect or reload
       setTimeout(() => setIsAdded(false), 2000);
   
     } catch (error) {
