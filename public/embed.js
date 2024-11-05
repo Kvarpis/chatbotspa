@@ -21,9 +21,8 @@
         return cookies;
     }
 
-    // Helper function to handle cart updates
+    // Enhanced cart update handler
     function handleCartUpdate(data) {
-        // Using the current window's fetch to maintain session
         fetch('/cart.js', {
             method: 'GET',
             credentials: 'same-origin',
@@ -35,24 +34,72 @@
         .then(cartData => {
             console.log('Current cart data:', cartData);
 
-            // Update cart count
-            const cartCountElements = document.querySelectorAll('.cart-count-bubble span');
+            // Update all possible cart count elements
+            const cartCountElements = document.querySelectorAll([
+                '.cart-count-bubble span',
+                '.cart-count',
+                '[data-cart-count]',
+                '.js-cart-count',
+                '[data-cart-item-count]'
+            ].join(','));
+            
             cartCountElements.forEach(elem => {
                 elem.textContent = cartData.item_count.toString();
             });
 
-            // Update cart drawer if it exists
-            if (window.Shopify && window.Shopify.onCartUpdate) {
-                window.Shopify.onCartUpdate(cartData);
+            // Trigger various cart update events
+            if (window.Shopify) {
+                // Standard Shopify cart update
+                if (window.Shopify.onCartUpdate) {
+                    window.Shopify.onCartUpdate(cartData);
+                }
+
+                // Trigger cart refresh event
+                document.documentElement.dispatchEvent(
+                    new CustomEvent('cart:refresh', {
+                        bubbles: true
+                    })
+                );
+
+                // Additional cart update event
+                document.documentElement.dispatchEvent(
+                    new CustomEvent('cart:update', {
+                        bubbles: true,
+                        detail: cartData
+                    })
+                );
             }
 
-            // Try to open cart drawer if it exists
-            const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
-            if (cartDrawerTrigger instanceof HTMLElement) {
-                cartDrawerTrigger.click();
+            // Try to open cart drawer using various selectors
+            const cartDrawerTriggers = [
+                '[data-cart-drawer-trigger]',
+                '[data-drawer-toggle="cart"]',
+                '.js-drawer-open-cart',
+                '[data-action="open-drawer"][data-drawer="cart"]'
+            ];
+
+            for (const selector of cartDrawerTriggers) {
+                const trigger = document.querySelector(selector);
+                if (trigger instanceof HTMLElement) {
+                    trigger.click();
+                    break;
+                }
             }
 
-            // Update the cookies object with new cart token
+            // Update cart drawer visibility
+            const cartDrawer = document.querySelector([
+                '#cart-drawer',
+                '.cart-drawer',
+                '.js-cart-drawer',
+                '[data-drawer="cart"]'
+            ].join(','));
+
+            if (cartDrawer) {
+                cartDrawer.classList.add('is-active', 'is-visible', 'drawer--is-open');
+                document.body.classList.add('cart-drawer-open');
+            }
+
+            // Update cookies and session
             const currentCookies = getCookies();
             cookies.cart = currentCookies.cart;
 
@@ -61,9 +108,10 @@
                 type: 'SESSION_UPDATE',
                 cookies: currentCookies,
                 shopifyData: {
-                    shop: window.Shopify?.shop,
+                    shop: window.location.hostname || window.Shopify?.shop,
                     currency: window.Shopify?.currency?.active,
-                    cartToken: currentCookies.cart
+                    cartToken: currentCookies.cart,
+                    cartCount: cartData.item_count
                 }
             }, config.baseUrl);
         })
@@ -171,9 +219,20 @@
                     .then(data => {
                         console.log('Added to cart:', data);
                         handleCartUpdate({ action: 'add', data });
+
+                        // Send success message back to iframe
+                        iframe.contentWindow.postMessage({
+                            type: 'ADD_TO_CART_SUCCESS',
+                            data: data
+                        }, config.baseUrl);
                     })
                     .catch(error => {
                         console.error('Error adding to cart:', error);
+                        // Send error message back to iframe
+                        iframe.contentWindow.postMessage({
+                            type: 'ADD_TO_CART_ERROR',
+                            error: error.message
+                        }, config.baseUrl);
                     });
                     break;
 
