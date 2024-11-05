@@ -203,7 +203,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   const extractVariantId = (gid: string): number | null => {
     try {
-      // Extract the numeric ID from the GraphQL ID
       const matches = gid.match(/\/ProductVariant\/(\d+)/);
       if (matches && matches[1]) {
         return parseInt(matches[1], 10);
@@ -229,20 +228,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setIsAdding(true);
     
     try {
+      // Exactly matching your working console example
       const response = await fetch('/cart/add.js', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
+          'Accept': 'application/json'
         },
-        credentials: 'same-origin',
         body: JSON.stringify({
-          form_type: 'product',
-          utf8: '✓',
-          id: numericId,
-          quantity: quantity,
-          sections: 'cart-drawer,cart-icon-bubble'
+          items: [{
+            id: numericId,
+            quantity: quantity
+          }]
         })
       });
 
@@ -250,7 +247,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       const text = await response.text();
       console.log('Raw response:', text);
 
-      // Then parse it as JSON
+      // Then parse it as JSON if there's content
       const data = text ? JSON.parse(text) : null;
       console.log('Parsed response:', data);
 
