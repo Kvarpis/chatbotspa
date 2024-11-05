@@ -298,23 +298,35 @@ async function searchProducts(searchTerm, previousProducts = []) {
   }
 }
 
-// Enhanced product request detection
+// Enhanced product request detection with better context awareness
 async function isProductRequest(message) {
   const metadata = await getShopifyMetadata();
   const normalizedMessage = message.toLowerCase();
   
-  // Action terms in Norwegian
-  const actionTerms = [
-    'vis', 'se', 'kjøpe', 'bestille', 'flere', 'produkt', 
-    'anbefal', 'foreslå', 'finne', 'søke', 'handle'
+  // Booking/appointment related terms (should NOT trigger product search)
+  const bookingTerms = [
+    'bestill', 'time', 'booking', 'avtale', 'behandling', 
+    'time', 'behandlinger', 'massasje', 'vipper', 'bryn',
+    'konsultasjon', 'dermapen', 'voks', 'voksing'
+  ];
+
+  // If message contains booking terms, it's not a product request
+  if (bookingTerms.some(term => normalizedMessage.includes(term))) {
+    return false;
+  }
+
+  // Action terms specifically for products
+  const productActionTerms = [
+    'vis meg', 'se på', 'kjøpe', 'produkter', 'krem',
+    'anbefal', 'handle', 'shopping', 'nettbutikk', 'kjøpe'
   ];
   
-  // Check for action terms
-  const hasActionTerm = actionTerms.some(term => 
+  // Check for product action terms
+  const hasProductAction = productActionTerms.some(term => 
     normalizedMessage.includes(term)
   );
   
-  // Check for product-related terms
+  // Check for specific product-related terms from Shopify
   const hasProductTerm = [
     ...metadata.searchTerms.vendors,
     ...metadata.searchTerms.productTypes,
@@ -323,7 +335,11 @@ async function isProductRequest(message) {
     ...Object.values(productCategories).flat()
   ].some(term => normalizedMessage.includes(term.toLowerCase()));
 
-  return hasActionTerm || hasProductTerm;
+  // Only return true if we have both a product action and a product term
+  // or if it's a very specific product reference
+  return (hasProductAction && hasProductTerm) || 
+         normalizedMessage.includes('thalgo') ||
+         /\b(serum|krem|lotion|rens|maske)\b/.test(normalizedMessage);
 }
 
 // System prompt builder
@@ -459,7 +475,15 @@ async function buildSystemPrompt() {
     Hold alltid en profesjonell, men varm tone som reflekterer Seacret Spas høye servicestandard.`;
 }
 
-// Main handler function
+// Add this right before the handler
+const createBookingComponent = () => {
+  return {
+    text: 'Bestill time hos oss',
+    url: 'https://bestill.timma.no/reservation/SeacretSpa'
+  };
+};
+
+// Main handler function with improved context handling
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
@@ -484,7 +508,24 @@ export default async function handler(req, res) {
     // Get system prompt with updated categories
     const systemPrompt = await buildSystemPrompt();
 
-    // Handle direct product requests
+    // Booking-related terms check
+    const bookingTerms = ['bestill', 'time', 'booking', 'avtale', 'behandling'];
+    const isBookingRequest = bookingTerms.some(term => 
+      userMessage.toLowerCase().includes(term)
+    );
+
+    // Handle booking requests immediately
+    if (isBookingRequest) {
+      const bookingComponent = createBookingComponent();
+      return res.status(200).json({
+        success: true,
+        content: 'Du kan bestille time direkte her:',
+        hasBookingButton: true,
+        booking: bookingComponent
+      });
+    }
+
+    // Handle direct product requests with improved detection
     if (await isProductRequest(userMessage)) {
       const products = await searchProducts(userMessage, previousProducts);
       
@@ -501,7 +542,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Chat handling with Claude
+    // Regular chat handling with Claude
     const completion = await anthropic.messages.create({
       model: "claude-3-sonnet-20240229",
       max_tokens: 1024,
@@ -511,8 +552,21 @@ export default async function handler(req, res) {
 
     const response = completion.content[0].text;
     
+    // Check if response indicates a booking request
+    if (response.toLowerCase().includes('bestill') || 
+        response.toLowerCase().includes('booking') ||
+        response.toLowerCase().includes('time')) {
+      const bookingComponent = createBookingComponent();
+      return res.status(200).json({
+        success: true,
+        content: response,
+        hasBookingButton: true,
+        booking: bookingComponent
+      });
+    }
+    
     // Handle product requests from Claude
-    if (response.includes('PRODUCT_REQUEST:')) {
+    if (response.includes('PRODUCT_REQUEST:') && !isBookingRequest) {
       const searchTerm = response.split('PRODUCT_REQUEST:')[1].trim();
       const products = await searchProducts(searchTerm, previousProducts);
       
