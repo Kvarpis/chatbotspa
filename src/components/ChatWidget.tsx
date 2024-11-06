@@ -387,17 +387,31 @@ const QuickActions: React.FC<{
 const ChatMessage: React.FC<{ message: string | React.ReactNode; isBot: boolean }> = ({ message, isBot }) => (
   <div className={`flex ${isBot ? 'justify-start' : 'justify-end'} mb-4`}>
     <div 
-      className={`rounded-2xl px-4 py-2 max-w-[80%] shadow-sm ${
+      className={`rounded-2xl px-4 py-3 max-w-[80%] shadow-sm ${
         isBot 
-          ? 'rounded-tl-sm bg-white border border-gray-200' 
+          ? 'rounded-tl-sm bg-white border border-gray-200 text-gray-800' 
           : 'rounded-tr-sm text-white'
       }`}
       style={{
         backgroundColor: isBot ? 'white' : CONFIG.COLORS.primary,
-        wordBreak: 'break-word'
+        wordBreak: 'break-word',
+        fontSize: '0.9375rem',
+        lineHeight: '1.5',
+        letterSpacing: '0.01em'
       }}
     >
-      {message}
+      {typeof message === 'string' ? (
+        <div className="whitespace-pre-line">
+          {message.split('\n').map((line, i) => (
+            <React.Fragment key={i}>
+              {line}
+              {i !== message.split('\n').length - 1 && <br />}
+            </React.Fragment>
+          ))}
+        </div>
+      ) : (
+        message
+      )}
     </div>
   </div>
 );
