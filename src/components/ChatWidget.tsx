@@ -137,7 +137,7 @@ const TRANSLATIONS = {
   askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Bestille time\n3. Svare på spørsmål om våre produkter og tjenester",
   typeMessage: "Skriv din melding...",
   booking: "Bestill time",
-  bookingQuestion: "Hvilken type behandling er du interessert i?\n\nVi tilbyr:\n- Ansiktsbehandling\n- Massasje\n- Voksing\n- Manikyr og Pedikyr\n",
+  bookingQuestion: "Hvilken type behandling er du interessert i?",
   bookingPrompt: "Vil du se våre tilgjengelige tider?",
   addToCart: "Legg i handlekurv",
   added: "Lagt til i handlekurven!",

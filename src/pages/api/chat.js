@@ -34,49 +34,6 @@ const productCategories = {
   'acne': ['problemhud', 'uren hud', 'spots', 'akneplager']
 };
 
-// Add after your existing caches and shownProductsCache
-const ContextManager = {
-  recentQueries: new Map(),
-  intentHistory: new Map(),
-  confidenceScores: new Map(),
-  
-  updateContext(sessionId, query, intent, confidence) {
-    const sessionContext = {
-      timestamp: Date.now(),
-      query,
-      intent
-    };
-    
-    // Update recent queries (maintain last 3)
-    const queries = this.recentQueries.get(sessionId) || [];
-    queries.unshift(sessionContext);
-    if (queries.length > 3) queries.pop();
-    this.recentQueries.set(sessionId, queries);
-    
-    // Update intent history
-    this.intentHistory.set(sessionId, [...(this.intentHistory.get(sessionId) || []), intent]);
-  }
-};
-
-const ErrorTracker = {
-  errors: new Map(),
-  
-  logError(sessionId, error, context) {
-    const errorLog = {
-      timestamp: Date.now(),
-      error: error.message,
-      stack: error.stack,
-      context
-    };
-    
-    const sessionErrors = this.errors.get(sessionId) || [];
-    sessionErrors.push(errorLog);
-    this.errors.set(sessionId, sessionErrors);
-    
-    console.error('ChatBot Error:', errorLog);
-  }
-};
-
 // Fetch all relevant metadata from Shopify
 async function fetchShopifyMetadata() {
   try {
@@ -482,45 +439,6 @@ const createBookingComponent = () => {
   };
 };
 
-async function classifyIntent(message) {
-  const normalizedMessage = message.toLowerCase();
-  let intent = 'general';
-  let confidence = 0;
-
-  // Booking intent
-  const bookingTerms = ['bestill', 'time', 'booking', 'avtale', 'behandling'];
-  if (bookingTerms.some(term => normalizedMessage.includes(term))) {
-    intent = 'booking';
-    confidence = 0.9;
-    return { intent, confidence };
-  }
-
-  // Product intent (use existing isProductRequest logic)
-  if (await isProductRequest(message)) {
-    intent = 'product';
-    confidence = 0.8;
-    return { intent, confidence };
-  }
-
-  // Location/contact intent
-  const locationTerms = ['hvor', 'adresse', 'finne', 'ligger', 'kontakt'];
-  if (locationTerms.some(term => normalizedMessage.includes(term))) {
-    intent = 'location';
-    confidence = 0.7;
-    return { intent, confidence };
-  }
-
-  // Price intent
-  const priceTerms = ['pris', 'koster', 'kostnad', 'betale'];
-  if (priceTerms.some(term => normalizedMessage.includes(term))) {
-    intent = 'price';
-    confidence = 0.7;
-    return { intent, confidence };
-  }
-
-  return { intent: 'general', confidence: 0.5 };
-}
-
 // Main handler function with improved context handling
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -531,34 +449,40 @@ export default async function handler(req, res) {
     });
   }
 
+  if (!anthropic) {
+    return res.status(500).json({
+      success: false,
+      error: 'API configuration error'
+    });
+  }
+
   try {
     const userMessage = req.body.messages[0]?.content || '';
     const sessionId = req.body.sessionId || 'default';
     const previousProducts = shownProductsCache.get(sessionId) || [];
 
-    // Classify intent
-    const { intent, confidence } = await classifyIntent(userMessage);
-    
-    // Update context
-    ContextManager.updateContext(sessionId, userMessage, intent, confidence);
-
     // Get system prompt with updated categories
     const systemPrompt = await buildSystemPrompt();
 
-    // Handle booking requests
-    if (intent === 'booking') {
+    // Booking-related terms check
+    const bookingTerms = ['bestill', 'time', 'booking', 'avtale', 'behandling'];
+    const isBookingRequest = bookingTerms.some(term => 
+      userMessage.toLowerCase().includes(term)
+    );
+
+    // Handle booking requests immediately
+    if (isBookingRequest) {
       const bookingComponent = createBookingComponent();
       return res.status(200).json({
         success: true,
         content: 'Du kan bestille time direkte her:',
         hasBookingButton: true,
-        booking: bookingComponent,
-        metadata: { intent, confidence }
+        booking: bookingComponent
       });
     }
 
-    // Handle product requests
-    if (intent === 'product') {
+    // Handle direct product requests with improved detection
+    if (await isProductRequest(userMessage)) {
       const products = await searchProducts(userMessage, previousProducts);
       
       if (products.length > 0) {
@@ -569,30 +493,36 @@ export default async function handler(req, res) {
           success: true,
           content: 'Her er noen produkter som kan passe for deg:',
           hasProductCard: true,
-          products: products,
-          metadata: { intent, confidence }
+          products: products
         });
       }
     }
 
-    // Regular chat handling with context
+    // Regular chat handling with Claude
     const completion = await anthropic.messages.create({
       model: "claude-3-sonnet-20240229",
       max_tokens: 1024,
       system: systemPrompt,
-      messages: [
-        // Include recent context
-        ...(ContextManager.recentQueries.get(sessionId) || [])
-          .slice(0, 2)
-          .map(ctx => ({ role: "user", content: ctx.query })),
-        { role: "user", content: userMessage }
-      ]
+      messages: [{ role: "user", content: userMessage }]
     });
 
     const response = completion.content[0].text;
     
-    // Check for product request in response
-    if (response.includes('PRODUCT_REQUEST:') && !intent === 'booking') {
+    // Check if response indicates a booking request
+    if (response.toLowerCase().includes('bestill') || 
+        response.toLowerCase().includes('booking') ||
+        response.toLowerCase().includes('time')) {
+      const bookingComponent = createBookingComponent();
+      return res.status(200).json({
+        success: true,
+        content: response,
+        hasBookingButton: true,
+        booking: bookingComponent
+      });
+    }
+    
+    // Handle product requests from Claude
+    if (response.includes('PRODUCT_REQUEST:') && !isBookingRequest) {
       const searchTerm = response.split('PRODUCT_REQUEST:')[1].trim();
       const products = await searchProducts(searchTerm, previousProducts);
       
@@ -604,24 +534,18 @@ export default async function handler(req, res) {
           success: true,
           content: response.split('PRODUCT_REQUEST:')[0].trim(),
           hasProductCard: true,
-          products: products,
-          metadata: { intent, confidence }
+          products: products
         });
       }
     }
 
     return res.status(200).json({
       success: true,
-      content: response,
-      metadata: { intent, confidence }
+      content: response
     });
 
   } catch (error) {
-    ErrorTracker.logError(req.body.sessionId, error, {
-      message: req.body.messages[0]?.content,
-      timestamp: Date.now()
-    });
-    
+    console.error('Handler error:', error);
     return res.status(500).json({
       success: false,
       error: error.message
