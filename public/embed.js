@@ -2,12 +2,23 @@
     // Configuration
     const config = {
         baseUrl: 'https://chatbotspa.vercel.app',
-        buttonSize: '70px',
-        expandedWidth: '420px',
-        expandedHeight: '650px',
-        position: {
-            bottom: '20px',
-            right: '20px'
+        desktop: {
+            buttonSize: '70px',
+            expandedWidth: '420px',
+            expandedHeight: '650px',
+            position: {
+                bottom: '25px',
+                right: '25px'
+            }
+        },
+        mobile: {
+            buttonSize: '55px',
+            expandedWidth: '100%',    // Full width on mobile
+            expandedHeight: '100%',   // Full height on mobile
+            position: {
+                bottom: '0px',
+                right: '0px'
+            }
         }
     };
 
@@ -161,12 +172,13 @@
     const iframe = document.createElement('iframe');
     
     // Start with minimal size for just the chat button
+    const dimensions = getCurrentDimensions();
     iframe.style.cssText = `
         position: fixed;
-        bottom: ${config.position.bottom};
-        right: ${config.position.right};
-        width: ${config.buttonSize};
-        height: ${config.buttonSize};
+        bottom: ${dimensions.position.bottom};
+        right: ${dimensions.position.right};
+        width: ${dimensions.buttonSize};
+        height: ${dimensions.buttonSize};
         border: 0;
         background: transparent;
         z-index: 999999;
@@ -210,10 +222,22 @@
         console.error('Error loading chat widget:', error);
     };
 
-    // Append iframe to body
+    // Add this function near the top with other helper functions
+    function ensureViewportMeta() {
+        let viewport = document.querySelector('meta[name="viewport"]');
+        if (!viewport) {
+            viewport = document.createElement('meta');
+            viewport.name = 'viewport';
+            document.head.appendChild(viewport);
+        }
+        viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+    }
+
+    // Add this call after iframe creation but before appending to body
+    ensureViewportMeta();
     document.body.appendChild(iframe);
 
-    // Listen for messages from the chat widget
+    // Replace the existing message event listener
     window.addEventListener('message', function(event) {
         if (event.origin === config.baseUrl) {
             console.log('Received message from chat:', event.data);
@@ -225,7 +249,6 @@
                     break;
 
                 case 'REQUEST_SESSION':
-                    // Send current session data when requested
                     iframe.contentWindow.postMessage({
                         type: 'SESSION_UPDATE',
                         cookies: getCookies(),
@@ -239,7 +262,6 @@
                     break;
 
                 case 'ADD_TO_CART':
-                    // Handle add to cart request from iframe
                     const { variantId, quantity } = event.data;
                     fetch('/cart/add.js', {
                         method: 'POST',
@@ -258,9 +280,8 @@
                     .then(response => response.json())
                     .then(data => {
                         console.log('Added to cart:', data);
-                        handleCartUpdate({ action: 'add', data }, true); // Show drawer when adding items
+                        handleCartUpdate({ action: 'add', data }, true);
 
-                        // Send success message back to iframe
                         iframe.contentWindow.postMessage({
                             type: 'ADD_TO_CART_SUCCESS',
                             data: data
@@ -277,11 +298,9 @@
 
                 default:
                     if (event.data === 'expand') {
-                        iframe.style.width = config.expandedWidth;
-                        iframe.style.height = config.expandedHeight;
+                        updateIframeStyles(true);
                     } else if (event.data === 'minimize') {
-                        iframe.style.width = config.buttonSize;
-                        iframe.style.height = config.buttonSize;
+                        updateIframeStyles(false);
                     }
             }
         }
@@ -297,4 +316,13 @@
     }, 1000);
 
     console.log('Chat widget initialized with session monitoring');
+
+    // Add resize listener with debouncing
+    let resizeTimeout;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(function() {
+            updateIframeStyles(iframe.style.width !== dimensions.buttonSize);
+        }, 250);
+    });
 })();
