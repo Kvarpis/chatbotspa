@@ -42,11 +42,11 @@ const nextConfig = {
       {
         source: '/',
         headers: [
-          { key: 'Access-Control-Allow-Origin', value: 'https://seacretspano.myshopify.com' },
+          { key: 'Access-Control-Allow-Origin', value: 'https://seacretspa.no' },
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { 
             key: 'Content-Security-Policy',
-            value: "frame-ancestors 'self' https://*.myshopify.com http://localhost:* https://*.vercel.app"
+            value: "frame-ancestors 'self' https://seacretspa.no https://*.myshopify.com http://localhost:* https://*.vercel.app"
           },
           { key: 'X-Frame-Options', value: 'ALLOWALL' }
         ]
@@ -57,7 +57,7 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
           { key: 'Pragma', value: 'no-cache' },
           { key: 'Expires', value: '0' },
-          { key: 'Access-Control-Allow-Origin', value: 'https://seacretspano.myshopify.com' },
+          { key: 'Access-Control-Allow-Origin', value: 'https://seacretspa.no' },
           { key: 'Content-Type', value: 'application/javascript' },
           { key: 'Access-Control-Allow-Credentials', value: 'true' }
         ]
