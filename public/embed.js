@@ -2,12 +2,29 @@
     // Configuration
     const config = {
         baseUrl: 'https://chatbotspa.vercel.app',
-        buttonSize: '70px',
-        expandedWidth: '420px',
-        expandedHeight: '650px',
+        buttonSize: {
+            desktop: '70px',
+            mobile: '56px'
+        },
+        expandedSize: {
+            desktop: {
+                width: '420px',
+                height: '650px'
+            },
+            mobile: {
+                width: '100%',
+                height: '90vh'
+            }
+        },
         position: {
-            bottom: '25px',
-            right: '25px'
+            desktop: {
+                bottom: '25px',
+                right: '25px'
+            },
+            mobile: {
+                bottom: '0px',
+                right: '0px'
+            }
         }
     };
 
@@ -19,6 +36,28 @@
             cookies[name] = value;
         });
         return cookies;
+    }
+
+    // Helper function to check if device is mobile
+    function isMobile() {
+        return window.innerWidth <= 768;
+    }
+
+    // Function to update iframe size and position
+    function updateIframeLayout() {
+        const mobile = isMobile();
+        
+        if (iframe.dataset.state === 'expanded') {
+            iframe.style.width = mobile ? config.expandedSize.mobile.width : config.expandedSize.desktop.width;
+            iframe.style.height = mobile ? config.expandedSize.mobile.height : config.expandedSize.desktop.height;
+            iframe.style.bottom = mobile ? config.position.mobile.bottom : config.position.desktop.bottom;
+            iframe.style.right = mobile ? config.position.mobile.right : config.position.desktop.right;
+        } else {
+            iframe.style.width = mobile ? config.buttonSize.mobile : config.buttonSize.desktop;
+            iframe.style.height = mobile ? config.buttonSize.mobile : config.buttonSize.desktop;
+            iframe.style.bottom = mobile ? '16px' : config.position.desktop.bottom;
+            iframe.style.right = mobile ? '16px' : config.position.desktop.right;
+        }
     }
 
     // Function to update cart count UI
@@ -41,7 +80,6 @@
                 span.textContent = count.toString();
             }
 
-            // Force bubble visibility
             bubble.style.display = count > 0 ? 'flex' : 'none';
             bubble.style.opacity = '1';
             bubble.style.visibility = 'visible';
@@ -60,7 +98,6 @@
         
         cartCountElements.forEach(elem => {
             elem.textContent = count.toString();
-            // Force parent bubble visibility if it exists
             const bubble = elem.closest('.cart-count-bubble');
             if (bubble) {
                 bubble.style.display = count > 0 ? 'flex' : 'none';
@@ -97,17 +134,13 @@
         .then(cartData => {
             console.log('Current cart data:', cartData);
 
-            // Update cart count UI
             updateCartCountUI(cartData.item_count);
 
-            // Trigger various cart update events
             if (window.Shopify) {
-                // Standard Shopify cart update
                 if (window.Shopify.onCartUpdate) {
                     window.Shopify.onCartUpdate(cartData);
                 }
 
-                // Dawn theme specific section updates
                 if (window.Shopify.sections) {
                     document.documentElement.dispatchEvent(
                         new CustomEvent('cart:refresh', {
@@ -117,7 +150,6 @@
                     );
                 }
 
-                // Additional cart update events
                 ['cart:update', 'cart:change', 'count:update'].forEach(eventName => {
                     document.documentElement.dispatchEvent(
                         new CustomEvent(eventName, {
@@ -128,7 +160,6 @@
                 });
             }
 
-            // Only open cart drawer if showDrawer is true
             if (showDrawer) {
                 const cartDrawerTrigger = document.querySelector('[data-cart-drawer-trigger]');
                 if (cartDrawerTrigger instanceof HTMLElement) {
@@ -136,11 +167,9 @@
                 }
             }
 
-            // Update cookies and session
             const currentCookies = getCookies();
             cookies.cart = currentCookies.cart;
 
-            // Send updated session to iframe
             iframe.contentWindow.postMessage({
                 type: 'SESSION_UPDATE',
                 cookies: currentCookies,
@@ -160,19 +189,19 @@
     // Create and configure iframe
     const iframe = document.createElement('iframe');
     
-    // Start with minimal size for just the chat button
     iframe.style.cssText = `
         position: fixed;
-        bottom: ${config.position.bottom};
-        right: ${config.position.right};
-        width: ${config.buttonSize};
-        height: ${config.buttonSize};
         border: 0;
         background: transparent;
         z-index: 999999;
         transition: all 0.3s ease;
         opacity: 0;
     `;
+    
+    iframe.dataset.state = 'minimized';
+    
+    // Initial layout setup
+    updateIframeLayout();
     
     // Set the source URL with session info
     const cookies = getCookies();
@@ -189,10 +218,8 @@
         iframe.style.opacity = '1';
         console.log('Chat widget loaded successfully');
         
-        // Initialize cart count on load without showing drawer
         handleCartUpdate({}, false);
         
-        // Send initial session data
         iframe.contentWindow.postMessage({
             type: 'INIT_SESSION',
             cookies: getCookies(),
@@ -225,7 +252,6 @@
                     break;
 
                 case 'REQUEST_SESSION':
-                    // Send current session data when requested
                     iframe.contentWindow.postMessage({
                         type: 'SESSION_UPDATE',
                         cookies: getCookies(),
@@ -239,7 +265,6 @@
                     break;
 
                 case 'ADD_TO_CART':
-                    // Handle add to cart request from iframe
                     const { variantId, quantity } = event.data;
                     fetch('/cart/add.js', {
                         method: 'POST',
@@ -258,9 +283,8 @@
                     .then(response => response.json())
                     .then(data => {
                         console.log('Added to cart:', data);
-                        handleCartUpdate({ action: 'add', data }, true); // Show drawer when adding items
+                        handleCartUpdate({ action: 'add', data }, true);
 
-                        // Send success message back to iframe
                         iframe.contentWindow.postMessage({
                             type: 'ADD_TO_CART_SUCCESS',
                             data: data
@@ -277,22 +301,25 @@
 
                 default:
                     if (event.data === 'expand') {
-                        iframe.style.width = config.expandedWidth;
-                        iframe.style.height = config.expandedHeight;
+                        iframe.dataset.state = 'expanded';
+                        updateIframeLayout();
                     } else if (event.data === 'minimize') {
-                        iframe.style.width = config.buttonSize;
-                        iframe.style.height = config.buttonSize;
+                        iframe.dataset.state = 'minimized';
+                        updateIframeLayout();
                     }
             }
         }
     });
+
+    // Add resize listener for responsive updates
+    window.addEventListener('resize', updateIframeLayout);
 
     // Monitor cart cookie changes
     setInterval(() => {
         const currentCookies = getCookies();
         if (currentCookies.cart !== cookies.cart) {
             cookies.cart = currentCookies.cart;
-            handleCartUpdate({ action: 'update' }, false); // Don't show drawer for cookie updates
+            handleCartUpdate({ action: 'update' }, false);
         }
     }, 1000);
 

@@ -134,7 +134,7 @@ type ChatState = typeof CHAT_STATES[keyof typeof CHAT_STATES];
 // Enhanced Norwegian translations
 const TRANSLATIONS = {
   welcome: "Velkommen til Seacretspa! Hvordan kan jeg hjelpe deg i dag?",
-  askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Bestille time\n3. Svare på spørsmål om våre produkter og tjenester",
+  askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Bestille time\n3. Svare på spørsmål om våre produkter og tjenester\n chatbotten kan ta feil og gi unøyaktig informasjon, så vær tålmodig om du ikke får svar du er fornøyd med.",
   typeMessage: "Skriv din melding...",
   booking: "Bestill time",
   bookingQuestion: "Hvilken type behandling er du interessert i?",
@@ -657,14 +657,13 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
   };
 
   return (
-    // Wrapper with specific z-index and positioning for Shopify integration
-    <div className="chat wrapper fixed bottom-4 right-4" style={{ zIndex: 999 }}>
+    <div className="chat-wrapper fixed md:bottom-4 md:right-4 bottom-0 right-0" style={{ zIndex: 999 }}>
       <div className="relative isolate pointer-events-auto">
         {chatState === CHAT_STATES.MINIMIZED ? (
           <Button
             aria-label={TRANSLATIONS.chatbubbleAria}
             size="icon"
-            className="rounded-full w-14 h-14 shadow-lg flex items-center justify-center hover:scale-105 transition-transform relative"
+            className="rounded-full w-12 h-12 md:w-14 md:h-14 shadow-lg flex items-center justify-center hover:scale-105 transition-transform relative md:mb-0 mb-4 md:mr-0 mr-4"
             onClick={() => setChatState(CHAT_STATES.EXPANDED)}
             style={{ 
               backgroundColor: CONFIG.COLORS.primary,
@@ -678,7 +677,7 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
           </Button>
         ) : (
           <Card 
-            className="w-96 shadow-xl transition-all duration-300 transform"
+            className="w-full md:w-96 shadow-xl transition-all duration-300 transform max-h-[100vh] md:max-h-[600px]"
             style={{ backgroundColor: CONFIG.COLORS.background }}
           >
             <div className="flex justify-between items-center p-4 border-b">
@@ -698,7 +697,7 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
               </Button>
             </div>
             <CardContent className="p-4">
-              <div className="h-[500px] flex flex-col">
+              <div className="h-[calc(100vh-8rem)] md:h-[500px] flex flex-col">
                 <ScrollArea className="flex-1 pr-4 overflow-y-auto">
                   <div className="space-y-4">
                     {messages.map((message, index) => (
@@ -713,7 +712,7 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
                   </div>
                 </ScrollArea>
                 
-                <form onSubmit={handleSubmit} className="flex items-center gap-2 mt-4">
+                <form onSubmit={handleSubmit} className="flex items-center gap-2 mt-4 sticky bottom-0 bg-inherit pb-2">
                   <Input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -756,6 +755,25 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
           </Card>
         )}
       </div>
+
+      <style jsx global>{`
+        @media (max-width: 768px) {
+          .chat-wrapper {
+            width: 100% !important;
+          }
+          
+          .chat-wrapper > div > div[role="dialog"] {
+            position: fixed !important;
+            bottom: 0 !important;
+            right: 0 !important;
+            left: 0 !important;
+            margin: 0 !important;
+            border-bottom-left-radius: 0 !important;
+            border-bottom-right-radius: 0 !important;
+            max-height: 90vh !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };
