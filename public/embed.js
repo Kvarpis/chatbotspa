@@ -22,8 +22,8 @@
                 right: '25px'
             },
             mobile: {
-                bottom: '0px',
-                right: '0px'
+                bottom: '25px',
+                right: '25px'
             }
         }
     };
