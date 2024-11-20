@@ -718,6 +718,7 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
                     onChange={(e) => setInput(e.target.value)}
                     placeholder={isLoading ? TRANSLATIONS.loading : TRANSLATIONS.typeMessage}
                     className="flex-1 bg-white focus:ring-2 focus:ring-primary focus:border-transparent"
+                    style={{ fontSize: '16px' }}
                     disabled={isLoading}
                     onKeyPress={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
