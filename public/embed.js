@@ -4,7 +4,7 @@
         baseUrl: 'https://chatbotspa.vercel.app',
         buttonSize: {
             desktop: '70px',
-            mobile: '56px'
+            mobile: '70px'
         },
         expandedSize: {
             desktop: {
@@ -22,8 +22,8 @@
                 right: '25px'
             },
             mobile: {
-                bottom: '25px',
-                right: '25px'
+                bottom: '0px',
+                right: '0px'
             }
         }
     };
