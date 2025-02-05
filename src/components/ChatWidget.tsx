@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Send, ExternalLink, ShoppingCart, Calendar } from 'lucide-react';
+import { X, Send, ExternalLink, ShoppingCart } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,6 @@ import { ShopifySession } from '@/types/shopify';
 interface Config {
   STORE_URL: string | undefined;
   STOREFRONT_ACCESS_TOKEN: string | undefined;
-  BOOKING_URL: string;
   COLORS: {
     background: string;
     primary: string;
@@ -93,6 +92,7 @@ interface Product {
     };
   };
   available?: boolean;
+  url: string;
 }
 
 interface ShopifyWindow extends Window {
@@ -114,10 +114,9 @@ interface ShopifyGlobal {
 const CONFIG: Config = {
   STORE_URL: process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL,
   STOREFRONT_ACCESS_TOKEN: process.env.NEXT_PUBLIC_SHOPIFY_STOREFRONT_ACCESS_TOKEN,
-  BOOKING_URL: 'https://bestill.timma.no/reservation/SeacretSpa',
   COLORS: {
-    background: '#F8F6F0',
-    primary: '#5e9597',
+    background: '#f2fcff',
+    primary: '#8ec6db',
     text: '#333333',
     lightText: '#666666'
   }
@@ -133,26 +132,20 @@ type ChatState = typeof CHAT_STATES[keyof typeof CHAT_STATES];
 
 // Enhanced Norwegian translations
 const TRANSLATIONS = {
-  welcome: "Velkommen til Seacretspa! Hvordan kan jeg hjelpe deg i dag?",
-  askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Bestille time\n3. Svare på spørsmål om våre produkter og tjenester\n chatbotten kan ta feil og gi unøyaktig informasjon, så vær tålmodig om du ikke får svar du er fornøyd med.",
+  welcome: "Velkommen til Farskapet! Hvordan kan jeg hjelpe deg i dag?",
+  askHelp: "Jeg kan hjelpe deg med å:\n1. Finne produkter fra butikken vår\n2. Svare på spørsmål om våre produkter\n3. Hjelpe med kundeservice henvendelser",
   typeMessage: "Skriv din melding...",
-  booking: "Bestill time",
-  bookingQuestion: "Hvilken type behandling er du interessert i?",
-  bookingPrompt: "Vil du se våre tilgjengelige tider?",
-  addToCart: "Legg i handlekurv",
-  added: "Lagt til i handlekurven!",
   error: "Beklager, det oppstod en feil. Vennligst prøv igjen.",
   loading: "Vennligst vent...",
-  assistant: "Seacretspa Assistent",
+  assistant: "Farskapet Assistent",
   chatbubbleAria: "Åpne chat",
   outOfStock: "Utsolgt",
   adding: "Legger til...",
-  bookNow: "Se tilgjengelige tider",
   quickActions: {
     title: "Hva kan jeg hjelpe deg med?",
-    booking: "Bestill time",
     products: "Finn produkter",
-    questions: "Andre spørsmål"
+    questions: "Andre spørsmål",
+    support: "Kundeservice"
   }
 };
 
@@ -168,21 +161,6 @@ const ChatBubbleIcon: React.FC = () => (
   </svg>
 );
 
-// Booking button component
-const BookingButton: React.FC<{
-  onClick: () => void;
-}> = ({ onClick }) => (
-  <button
-    onClick={onClick}
-    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white hover:opacity-90 transition-all duration-200"
-    style={{ backgroundColor: CONFIG.COLORS.primary }}
-  >
-    <Calendar className="w-4 h-4" />
-    {TRANSLATIONS.bookNow}
-    <ExternalLink className="w-4 h-4" />
-  </button>
-);
-
 interface ProductCardProps {
   product: Product;
 }
@@ -190,15 +168,17 @@ interface ProductCardProps {
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [isAdded, setIsAdded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-
+  
   const variant = product.variants.edges[0]?.node;
   const isAvailable = variant?.availableForSale !== false;
+  const price = product.priceRange?.minVariantPrice?.amount 
+    ? `${parseFloat(product.priceRange.minVariantPrice.amount).toLocaleString('nb-NO')} kr` 
+    : '-';
+
+  const productUrl = `${process.env.NEXT_PUBLIC_SHOPIFY_STORE_URL}/products/${product.handle}`;
 
   const showNotification = (message: string, type: 'success' | 'error') => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+    // Implementation of showNotification function
   };
 
   const extractVariantId = (gid: string): number | null => {
@@ -227,13 +207,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         variantId: numericId,
         quantity: quantity
       }, '*');
-  
       setIsAdded(true);
-      showNotification(TRANSLATIONS.added, "success");
+      showNotification("Added to cart", "success");
       setTimeout(() => setIsAdded(false), 2000);
     } catch (error) {
       console.error("Error adding to cart:", error);
-      showNotification(TRANSLATIONS.error, "error");
+      showNotification("An error occurred", "error");
     } finally {
       setIsAdding(false);
     }
@@ -241,91 +220,65 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   
   
   return (
-    <div className="relative border rounded-lg p-3 mb-2 bg-white shadow-sm hover:shadow-md transition-all duration-300">
-      {notification && (
-        <div 
-          className={`absolute -top-2 right-2 z-10 rounded-md px-3 py-1 text-white text-sm ${
-            notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-          }`}
-        >
-          {notification.message}
-        </div>
-      )}
+    <div className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 bg-white">
+      <img
+        src={product.featuredImage?.url}
+        alt={product.featuredImage?.altText || product.title}
+        className="w-16 h-16 object-cover rounded flex-shrink-0"
+      />
       
-      <div className="flex gap-3">
-        <div className="w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-gray-50">
-          {!imageError && product.featuredImage?.url ? (
-            <img
-              src={product.featuredImage.url}
-              alt={product.featuredImage.altText || product.title}
-              className="w-full h-full object-contain"
-              onError={() => setImageError(true)}
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <ShoppingCart className="w-6 h-6 text-gray-400" />
-            </div>
-          )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-shrink">
+            <a 
+              href={productUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium hover:underline line-clamp-2"
+              style={{ color: CONFIG.COLORS.primary }}
+            >
+              {product.title}
+            </a>
+          </div>
+          <span className="text-sm font-medium whitespace-nowrap flex-shrink-0">
+            {price}
+          </span>
         </div>
 
-        <div className="flex-1 min-w-0 flex flex-col">
-          <div className="flex justify-between items-start gap-2">
-            <h3 className="font-medium text-gray-900 text-sm leading-tight line-clamp-2">
-              {product.title}
-            </h3>
-            <span className="font-medium text-gray-900 text-sm whitespace-nowrap">
-              {product.priceRange?.minVariantPrice?.amount ? 
-                new Intl.NumberFormat('nb-NO', {
-                  style: 'currency',
-                  currency: product.priceRange.minVariantPrice.currencyCode || 'NOK'
-                }).format(parseFloat(product.priceRange.minVariantPrice.amount))
-              : '-'}
-            </span>
-          </div>
-
-          <p className="mt-1 text-xs text-gray-500 line-clamp-2 flex-grow">
-            {product.description}
-          </p>
-
-          <div className="mt-2 flex justify-end">
+        <div className="flex gap-2 mt-2">
+          <a
+            href={productUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-8 h-8 flex items-center justify-center rounded border transition-colors hover:bg-gray-50"
+            style={{ 
+              borderColor: CONFIG.COLORS.primary,
+              color: CONFIG.COLORS.primary 
+            }}
+            title="Se produkt"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+          
           <button
-        onClick={() => {
-          if (variant?.id) {
-            console.log("Variant ID before adding to cart:", variant.id); // Debug log
-            handleAddToCart(variant.id);
-    } else {
-      console.error("No valid variant ID available.");
-    }
-  }}
-              disabled={isAdding || !isAvailable}
-              className={`
-                px-3 py-1.5 rounded text-white text-xs font-medium
-                transition-all duration-300
-                ${isAdded ? 'bg-green-500' : ''}
-                ${!isAvailable ? 'bg-gray-400' : ''}
-                ${!isAdded && isAvailable ? 'hover:opacity-90' : ''}
-              `}
-              style={{ 
-                backgroundColor: isAdded ? '#22c55e' : 
-                               !isAvailable ? '#9CA3AF' : 
-                               CONFIG.COLORS.primary 
-              }}
-            >
-              {isAdding ? (
-                <span className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Legger til...
-                </span>
-              ) : isAdded ? (
-                <span>✓ Lagt til</span>
-              ) : !isAvailable ? (
-                'Utsolgt'
-              ) : (
-                'Legg i handlekurv'
-              )}
-            </button>
-          </div>
+            onClick={() => handleAddToCart(variant?.id)}
+            disabled={isAdding || !isAvailable}
+            className="w-8 h-8 flex items-center justify-center rounded transition-colors"
+            style={{ 
+              backgroundColor: isAdded ? '#22c55e' : 
+                             !isAvailable ? '#9CA3AF' : 
+                             CONFIG.COLORS.primary,
+              opacity: (isAdding || !isAvailable) ? 0.7 : 1
+            }}
+            title={
+              isAdding ? 'Legger til...' : 
+              isAdded ? 'Lagt til' : 
+              !isAvailable ? 'Utsolgt' : 
+              'Legg i handlekurv'
+            }
+          >
+            <ShoppingCart className="h-4 w-4 text-white" />
+          </button>
         </div>
       </div>
     </div>
@@ -350,22 +303,14 @@ const TypingIndicator: React.FC = () => (
 
 // Quick actions component
 const QuickActions: React.FC<{
-  onBooking: () => void;
   onProducts: () => void;
   onQuestions: () => void;
-}> = ({ onBooking, onProducts, onQuestions }) => (
+}> = ({ onProducts, onQuestions }) => (
   <div className="border-t mt-4 pt-4">
     <p className="text-sm mb-2 text-center font-medium" style={{ color: CONFIG.COLORS.text }}>
       {TRANSLATIONS.quickActions.title}
     </p>
     <div className="flex flex-col gap-2">
-      <button
-        onClick={onBooking}
-        className="w-full px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-gray-50"
-        style={{ borderColor: CONFIG.COLORS.primary, color: CONFIG.COLORS.primary }}
-      >
-        {TRANSLATIONS.quickActions.booking}
-      </button>
       <button
         onClick={onProducts}
         className="w-full px-4 py-2 text-sm rounded-lg border transition-colors hover:bg-gray-50"
@@ -540,22 +485,6 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
     loadCart();
   }, [loadCart, shopifySession.cartToken]);
 
-  const handleBooking = () => {
-    addMessage(TRANSLATIONS.bookingQuestion, true);
-    setTimeout(() => {
-      addMessage(TRANSLATIONS.bookingPrompt, true);
-      addMessage(
-        <BookingButton
-          onClick={() => {
-            window.open(CONFIG.BOOKING_URL, '_blank');
-            addMessage("Jeg har åpnet bestillingssiden i en ny fane for deg.", true);
-          }}
-        />,
-        true
-      );
-    }, 500);
-  };
-
   const handleQuickProducts = async () => {
     const productMessage = "Vis meg produkter";
     addMessage(productMessage, false);
@@ -624,7 +553,8 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
           messages: [{
             role: 'user',
             content: userMessage
-          }]
+          }],
+          sessionId: localStorage.getItem('chatSessionId')
         })
       });
 
@@ -635,16 +565,21 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
       }
 
       if (data.hasProductCard && data.products) {
-        addMessage(data.content, true);
-        data.products.forEach((product: Product) => {
-          addMessage(
-            <ProductCard 
-              product={product}
-              key={product.id}
-            />,
-            true
-          );
-        });
+        // Add a single message containing both text and products
+        addMessage(
+          <div>
+            <p className="mb-3">{data.content}</p>
+            <div className="space-y-2">
+              {data.products.map((product: Product) => (
+                <ProductCard 
+                  key={product.id}
+                  product={product}
+                />
+              ))}
+            </div>
+          </div>,
+          true
+        );
       } else {
         addMessage(data.content, true);
       }
@@ -744,7 +679,6 @@ const SeacretspaChatWidget: React.FC<SeacretspaChatWidgetProps> = ({
 
                 {messages.length <= 2 && !isLoading && (
                   <QuickActions 
-                    onBooking={handleBooking}
                     onProducts={handleQuickProducts}
                     onQuestions={() => {
                       addMessage("Hvilke spørsmål har du? Jeg er her for å hjelpe!", true);

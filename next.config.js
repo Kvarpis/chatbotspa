@@ -42,11 +42,11 @@ const nextConfig = {
       {
         source: '/',
         headers: [
-          { key: 'Access-Control-Allow-Origin', value: 'https://seacretspa.no' },
+          { key: 'Access-Control-Allow-Origin', value: 'https://farskapet.no' },
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { 
             key: 'Content-Security-Policy',
-            value: "frame-ancestors 'self' https://seacretspa.no https://*.myshopify.com http://localhost:* https://*.vercel.app"
+            value: "frame-ancestors 'self' https://farskapet.no https://*.myshopify.com http://localhost:* https://*.vercel.app"
           },
           { key: 'X-Frame-Options', value: 'ALLOWALL' }
         ]

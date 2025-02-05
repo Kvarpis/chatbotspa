@@ -31,7 +31,7 @@ export default function EmbedPage() {
     const handleParentMessage = (event: MessageEvent) => {
       // Verify origin is from allowed domains
       const allowedOrigins = [
-        'https://seacretspa.no',
+        'https://farskapet.no',
         'http://localhost:3000',
         'https://chatbotspa.vercel.app'
       ];
